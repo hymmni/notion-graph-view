@@ -37,24 +37,32 @@
   ];
 
   // ─── 상태 ──────────────────────────────────────────────────────────────────
-  let simulation        = null;
-  let currentNodes      = [];
-  let currentEdges      = [];
-  let currentDbs        = [];
-  let savedZoomTransform = null; // 렌더 간 줌 상태 보존
+  let simulation         = null;
+  let currentNodes       = [];
+  let currentEdges       = [];
+  let currentDbs         = [];
+  let savedZoomTransform = null;
+  let currentZoomScale   = 1;
+
+  const DEFAULT_SETTINGS = {
+    hideOrphans:    false,
+    minDegree:      0,
+    nodeSizeScale:  1.0,
+    showLabels:     true,
+    labelThreshold: 0,
+    linkWidth:      1.5,
+    linkDistance:   70,
+    repelStrength:  180,
+    centerStrength: 0.52,
+    linkStrength:   0.5,
+  };
 
   const settings = {
-    hideOrphans: false,
-    minDegree:   0,
-    hiddenDbs:   new Set(),
-    nodeSizeScale: 1.0,
-    showLabels:  true,
-    linkWidth:   1.5,
-    linkDistance: 70,
-    repelStrength: 180,   // 양수로 저장, D3에 넣을 때 음수 적용
-    localMode:   false,
-    localDepth:  1,
-    localPageId: null,
+    ...DEFAULT_SETTINGS,
+    hiddenDbs:      new Set(),
+    localMode:      false,
+    localDepth:     1,
+    localPageId:    null,
     localPageTitle: null,
   };
 
@@ -186,13 +194,24 @@
   });
 
   function bindSettings() {
-    function slider(id, valId, key, parse, onchange) {
+    // 섹션 토글
+    document.querySelectorAll('.sp-section-header').forEach(h => {
+      h.addEventListener('click', () => h.closest('.sp-section').classList.toggle('collapsed'));
+    });
+
+    // 초기화
+    document.getElementById('settings-reset').addEventListener('click', resetSettings);
+
+    const fmtInt = v => String(Math.round(v));
+    const fmt1   = v => parseFloat(v).toFixed(1);
+    const fmt2   = v => parseFloat(v).toFixed(2);
+
+    function slider(id, valId, key, parse, fmt, onchange) {
       const el = document.getElementById(id);
       const vl = document.getElementById(valId);
       el.addEventListener('input', () => {
         settings[key] = parse(el.value);
-        vl.textContent = typeof settings[key] === 'number' && !Number.isInteger(settings[key])
-          ? settings[key].toFixed(1) : settings[key];
+        vl.textContent = fmt(settings[key]);
         onchange();
       });
     }
@@ -202,21 +221,60 @@
     }
 
     // 필터
-    check('s-hide-orphans', 'hideOrphans', applyFiltersAndRender);
-    slider('s-min-degree', 's-min-degree-val', 'minDegree', parseInt, applyFiltersAndRender);
+    check ('s-hide-orphans',    'hideOrphans',    applyFiltersAndRender);
+    slider('s-min-degree',      's-min-degree-val',      'minDegree',      parseInt,   fmtInt, applyFiltersAndRender);
 
     // 표시
-    slider('s-node-size', 's-node-size-val', 'nodeSizeScale', parseFloat, applyFiltersAndRender);
-    check('s-show-labels', 'showLabels', () => {
-      d3.selectAll('.node text').style('display', settings.showLabels ? null : 'none');
-    });
-    slider('s-link-width', 's-link-width-val', 'linkWidth', parseFloat, () => {
+    check ('s-show-labels',     'showLabels',     updateLabelVisibility);
+    slider('s-label-threshold', 's-label-threshold-val', 'labelThreshold', parseFloat, fmt2,   updateLabelVisibility);
+    slider('s-node-size',       's-node-size-val',       'nodeSizeScale',  parseFloat, fmt1,   applyFiltersAndRender);
+    slider('s-link-width',      's-link-width-val',      'linkWidth',      parseFloat, fmt1,   () => {
       d3.selectAll('.link').style('stroke-width', settings.linkWidth + 'px');
     });
 
-    // 물리 (시뮬레이션 재시작 필요)
-    slider('s-link-distance', 's-link-distance-val', 'linkDistance', parseInt, applyFiltersAndRender);
-    slider('s-repel', 's-repel-val', 'repelStrength', parseInt, applyFiltersAndRender);
+    // 장력
+    slider('s-center-strength', 's-center-strength-val', 'centerStrength', parseFloat, fmt2,   applyFiltersAndRender);
+    slider('s-repel',           's-repel-val',           'repelStrength',  parseInt,   fmtInt, applyFiltersAndRender);
+    slider('s-link-strength',   's-link-strength-val',   'linkStrength',   parseFloat, fmt2,   applyFiltersAndRender);
+    slider('s-link-distance',   's-link-distance-val',   'linkDistance',   parseInt,   fmtInt, applyFiltersAndRender);
+  }
+
+  function updateLabelVisibility() {
+    if (!settings.showLabels) {
+      d3.selectAll('.node text').style('display', 'none');
+    } else {
+      const minK = Math.pow(2, settings.labelThreshold);
+      d3.selectAll('.node text').style('display', currentZoomScale >= minK ? null : 'none');
+    }
+  }
+
+  function syncSettingsUI() {
+    document.getElementById('s-hide-orphans').checked = settings.hideOrphans;
+    document.getElementById('s-show-labels').checked  = settings.showLabels;
+    const fmtInt = v => String(Math.round(v));
+    const fmt1   = v => parseFloat(v).toFixed(1);
+    const fmt2   = v => parseFloat(v).toFixed(2);
+    [
+      ['s-min-degree',      's-min-degree-val',      settings.minDegree,      fmtInt],
+      ['s-label-threshold', 's-label-threshold-val', settings.labelThreshold, fmt2],
+      ['s-node-size',       's-node-size-val',       settings.nodeSizeScale,  fmt1],
+      ['s-link-width',      's-link-width-val',       settings.linkWidth,      fmt1],
+      ['s-center-strength', 's-center-strength-val', settings.centerStrength, fmt2],
+      ['s-repel',           's-repel-val',           settings.repelStrength,  fmtInt],
+      ['s-link-strength',   's-link-strength-val',   settings.linkStrength,   fmt2],
+      ['s-link-distance',   's-link-distance-val',   settings.linkDistance,   fmtInt],
+    ].forEach(([id, valId, val, fmt]) => {
+      document.getElementById(id).value = val;
+      document.getElementById(valId).textContent = fmt(val);
+    });
+    populateDbFilter();
+  }
+
+  function resetSettings() {
+    Object.assign(settings, DEFAULT_SETTINGS);
+    settings.hiddenDbs.clear();
+    syncSettingsUI();
+    applyFiltersAndRender();
   }
 
   function populateDbFilter() {
@@ -461,11 +519,13 @@
     const zoom = d3.zoom().scaleExtent([0.05, 10])
       .on('zoom', e => {
         savedZoomTransform = e.transform;
+        currentZoomScale   = e.transform.k;
         zoomG.attr('transform', e.transform);
+        updateLabelVisibility();
       });
     root.call(zoom);
-    // 이전 줌 상태 복원 (설정 변경·리사이즈 시 위치 유지)
     if (savedZoomTransform) {
+      currentZoomScale = savedZoomTransform.k;
       root.call(zoom.transform, savedZoomTransform);
     }
 
@@ -496,14 +556,15 @@
       .attr('dy', d => r(d) + 10)
       .attr('text-anchor', 'middle')
       .text(d => trunc(d.title, 16))
-      .style('display', settings.showLabels ? null : 'none')
       .classed('local-center', d => settings.localMode && d.id === settings.localPageId);
+
+    updateLabelVisibility();
 
     simulation = d3.forceSimulation(simNodes)
       .force('link',      d3.forceLink(simEdges).id(d => d.id)
-               .distance(settings.linkDistance).strength(0.5))
+               .distance(settings.linkDistance).strength(settings.linkStrength))
       .force('charge',    d3.forceManyBody().strength(-settings.repelStrength))
-      .force('center',    d3.forceCenter(W / 2, H / 2))
+      .force('center',    d3.forceCenter(W / 2, H / 2).strength(settings.centerStrength))
       .force('collision', d3.forceCollide().radius(d => r(d) + 5))
       .on('tick', () => {
         linkSel.attr('x1', d => d.source.x).attr('y1', d => d.source.y)

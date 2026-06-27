@@ -85,68 +85,112 @@
       <div id="settings-panel" class="settings-panel hidden">
         <div class="sp-header">
           <span>그래프 설정</span>
-          <button id="settings-close" class="sp-close">✕</button>
+          <div class="sp-header-actions">
+            <button id="settings-reset" class="sp-icon-btn" title="설정 초기화">↺</button>
+            <button id="settings-close" class="sp-icon-btn" title="닫기">✕</button>
+          </div>
         </div>
         <div class="sp-body">
 
+          <!-- 필터 -->
           <div class="sp-section">
-            <div class="sp-section-title">필터</div>
-            <label class="sp-row sp-checkbox-row">
-              <span>고립 노드 숨기기</span>
-              <input type="checkbox" id="s-hide-orphans" />
-            </label>
-            <div class="sp-row">
-              <span>최소 연결 수</span>
-              <div class="sp-slider-wrap">
-                <input type="range" id="s-min-degree" min="0" max="10" step="1" value="0" />
-                <span class="sp-val" id="s-min-degree-val">0</span>
+            <div class="sp-section-header">
+              <span class="sp-section-arrow">▾</span><span>필터</span>
+            </div>
+            <div class="sp-section-body">
+              <label class="sp-row sp-checkbox-row">
+                <span>고립 노드 숨기기</span>
+                <input type="checkbox" id="s-hide-orphans" />
+              </label>
+              <div class="sp-row">
+                <span>최소 연결 수</span>
+                <div class="sp-slider-wrap">
+                  <input type="range" id="s-min-degree" min="0" max="10" step="1" value="0" />
+                  <span class="sp-val" id="s-min-degree-val">0</span>
+                </div>
               </div>
             </div>
           </div>
 
+          <!-- 그룹 (DB 필터) -->
           <div class="sp-section">
-            <div class="sp-section-title">표시</div>
-            <div class="sp-row">
-              <span>노드 크기</span>
-              <div class="sp-slider-wrap">
-                <input type="range" id="s-node-size" min="0.5" max="2.5" step="0.1" value="1.0" />
-                <span class="sp-val" id="s-node-size-val">1.0</span>
-              </div>
+            <div class="sp-section-header">
+              <span class="sp-section-arrow">▾</span><span>그룹</span>
             </div>
-            <label class="sp-row sp-checkbox-row">
-              <span>레이블 표시</span>
-              <input type="checkbox" id="s-show-labels" checked />
-            </label>
-            <div class="sp-row">
-              <span>링크 두께</span>
-              <div class="sp-slider-wrap">
-                <input type="range" id="s-link-width" min="0.5" max="5" step="0.5" value="1.5" />
-                <span class="sp-val" id="s-link-width-val">1.5</span>
+            <div class="sp-section-body">
+              <div id="sp-db-list" class="sp-db-list"></div>
+            </div>
+          </div>
+
+          <!-- 표시 -->
+          <div class="sp-section">
+            <div class="sp-section-header">
+              <span class="sp-section-arrow">▾</span><span>표시</span>
+            </div>
+            <div class="sp-section-body">
+              <label class="sp-row sp-checkbox-row">
+                <span>레이블 표시</span>
+                <input type="checkbox" id="s-show-labels" checked />
+              </label>
+              <div class="sp-row">
+                <span>텍스트 표시 시작점</span>
+                <div class="sp-slider-wrap">
+                  <input type="range" id="s-label-threshold" min="-3" max="3" step="0.25" value="0" />
+                  <span class="sp-val" id="s-label-threshold-val">0.00</span>
+                </div>
+              </div>
+              <div class="sp-row">
+                <span>노드 크기</span>
+                <div class="sp-slider-wrap">
+                  <input type="range" id="s-node-size" min="0.1" max="5" step="0.1" value="1.0" />
+                  <span class="sp-val" id="s-node-size-val">1.0</span>
+                </div>
+              </div>
+              <div class="sp-row">
+                <span>링크 두께</span>
+                <div class="sp-slider-wrap">
+                  <input type="range" id="s-link-width" min="0.1" max="5" step="0.1" value="1.5" />
+                  <span class="sp-val" id="s-link-width-val">1.5</span>
+                </div>
               </div>
             </div>
           </div>
 
+          <!-- 장력 -->
           <div class="sp-section">
-            <div class="sp-section-title">물리</div>
-            <div class="sp-row">
-              <span>링크 거리</span>
-              <div class="sp-slider-wrap">
-                <input type="range" id="s-link-distance" min="20" max="250" step="10" value="70" />
-                <span class="sp-val" id="s-link-distance-val">70</span>
+            <div class="sp-section-header">
+              <span class="sp-section-arrow">▾</span><span>장력</span>
+            </div>
+            <div class="sp-section-body">
+              <div class="sp-row">
+                <span>중심 장력</span>
+                <div class="sp-slider-wrap">
+                  <input type="range" id="s-center-strength" min="0" max="1" step="0.01" value="0.52" />
+                  <span class="sp-val" id="s-center-strength-val">0.52</span>
+                </div>
+              </div>
+              <div class="sp-row">
+                <span>반발력</span>
+                <div class="sp-slider-wrap">
+                  <input type="range" id="s-repel" min="0" max="500" step="10" value="180" />
+                  <span class="sp-val" id="s-repel-val">180</span>
+                </div>
+              </div>
+              <div class="sp-row">
+                <span>링크 장력</span>
+                <div class="sp-slider-wrap">
+                  <input type="range" id="s-link-strength" min="0" max="1" step="0.01" value="0.5" />
+                  <span class="sp-val" id="s-link-strength-val">0.50</span>
+                </div>
+              </div>
+              <div class="sp-row">
+                <span>링크 거리</span>
+                <div class="sp-slider-wrap">
+                  <input type="range" id="s-link-distance" min="30" max="500" step="10" value="70" />
+                  <span class="sp-val" id="s-link-distance-val">70</span>
+                </div>
               </div>
             </div>
-            <div class="sp-row">
-              <span>반발력</span>
-              <div class="sp-slider-wrap">
-                <input type="range" id="s-repel" min="20" max="500" step="10" value="180" />
-                <span class="sp-val" id="s-repel-val">180</span>
-              </div>
-            </div>
-          </div>
-
-          <div class="sp-section">
-            <div class="sp-section-title">DB 필터</div>
-            <div id="sp-db-list" class="sp-db-list"></div>
           </div>
 
         </div>
