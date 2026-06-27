@@ -48,6 +48,7 @@
   let dbOrder            = [];     // custom sort order (array of db.id)
   let draggingNode       = null;   // 드래그 중인 노드 (hover 유지용)
   let savedPositions     = new Map(); // 노드 위치 저장 (re-render 시 복원)
+  let activeSearch       = '';     // 현재 검색어 (mouseleave 후 복원용)
 
   const DB_ORDER_KEY = 'dbCustomOrder';
 
@@ -981,6 +982,7 @@
         nodeSel.selectAll('text').classed('highlighted', false).classed('faded', false);
         linkSel.classed('highlighted', false).classed('faded', false);
         tooltip.classList.add('hidden');
+        if (activeSearch) applySearchHighlight(activeSearch); // 검색 강조 복원
       });
 
     window._graphNodeSel  = nodeSel;
@@ -1016,26 +1018,34 @@
   }
 
   // ─── 검색 ──────────────────────────────────────────────────────────────────
-  searchInput.addEventListener('input', () => {
-    const q = searchInput.value.trim().toLowerCase();
+  function applySearchHighlight(q) {
     const ns = window._graphNodeSel, ls = window._graphLinkSel;
     if (!ns) return;
     if (!q) {
       ns.selectAll('circle').classed('search-match', false).classed('faded', false);
       ns.selectAll('text').classed('search-match', false).classed('faded', false);
-      if (ls) ls.classed('faded', false); return;
+      if (ls) ls.classed('faded', false);
+      return;
     }
     const match = n => n.title.toLowerCase().includes(q) || (n.parentDbTitle || '').toLowerCase().includes(q);
     ns.selectAll('circle').classed('search-match', d => match(d)).classed('faded', d => !match(d));
     ns.selectAll('text').classed('search-match', d => match(d)).classed('faded', d => !match(d));
     if (ls) ls.classed('faded', true);
-    const first = (window._graphSimNodes || []).find(match);
-    if (first?.x != null) {
-      const W = svg.clientWidth || 380, H = svg.clientHeight || 500;
-      d3.select(svg).call(
-        d3.zoom().scaleExtent([0.05, 10]).transform,
-        d3.zoomIdentity.translate(W / 2 - first.x, H / 2 - first.y)
-      );
+  }
+
+  searchInput.addEventListener('input', () => {
+    activeSearch = searchInput.value.trim().toLowerCase();
+    applySearchHighlight(activeSearch);
+    if (activeSearch) {
+      const match = n => n.title.toLowerCase().includes(activeSearch) || (n.parentDbTitle || '').toLowerCase().includes(activeSearch);
+      const first = (window._graphSimNodes || []).find(match);
+      if (first?.x != null) {
+        const W = svg.clientWidth || 380, H = svg.clientHeight || 500;
+        d3.select(svg).call(
+          d3.zoom().scaleExtent([0.05, 10]).transform,
+          d3.zoomIdentity.translate(W / 2 - first.x, H / 2 - first.y)
+        );
+      }
     }
   });
 
