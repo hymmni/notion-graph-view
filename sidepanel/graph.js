@@ -47,6 +47,7 @@
   let dbSortMode         = 'name'; // 'name' | 'count' | 'custom'
   let dbOrder            = [];     // custom sort order (array of db.id)
   let draggingNode       = null;   // 드래그 중인 노드 (hover 유지용)
+  let savedPositions     = new Map(); // 노드 위치 저장 (re-render 시 복원)
 
   const DB_ORDER_KEY = 'dbCustomOrder';
 
@@ -604,19 +605,19 @@
       tlPos = Math.min(100, tlPos + 1);
       document.getElementById('tl-slider').value = tlPos;
       updateTlLabel();
-      updateTimelineVisibility(); // 재렌더 없이 opacity만 업데이트
+      applyFiltersAndRender(); // 위치 저장 후 신규 노드만 랜덤 위치에서 장력 애니메이션
       if (tlPos >= 100) {
         tlPlaying = false; clearInterval(tlTimer);
         document.getElementById('tl-play').textContent = '▶';
       }
-    }, 80);
+    }, 300);
   }
 
   function initTimelineControls() {
     document.getElementById('tl-slider').addEventListener('input', e => {
       tlPos = parseInt(e.target.value);
       updateTlLabel();
-      updateTimelineVisibility();
+      applyFiltersAndRender();
     });
     document.getElementById('tl-play').addEventListener('click', tlTogglePlay);
   }
@@ -655,6 +656,11 @@
 
   // ─── 필터 적용 후 렌더 ─────────────────────────────────────────────────────
   function applyFiltersAndRender() {
+    // 현재 시뮬레이션 노드 위치 저장 (re-render 시 기존 노드 위치 복원용)
+    (window._graphSimNodes || []).forEach(n => {
+      if (n.x != null) savedPositions.set(n.id, { x: n.x, y: n.y });
+    });
+
     let nodes = [...currentNodes];
     let edges = [...currentEdges];
 
@@ -695,6 +701,14 @@
         // 페이지가 필터된 그래프에 없음
         nodes = []; edges = [];
       }
+    }
+
+    // 5. 타임라인 필터
+    const tlCutoff = getTlCutoff();
+    if (tlCutoff !== null) {
+      nodes = nodes.filter(n => !n.createdAt || new Date(n.createdAt).getTime() <= tlCutoff);
+      const ids = new Set(nodes.map(n => n.id));
+      edges = edges.filter(e => ids.has(e.source) && ids.has(e.target));
     }
 
     renderGraph(nodes, edges, currentDbs);
@@ -838,7 +852,16 @@
       root.call(zoom.transform, savedZoomTransform);
     }
 
-    const simNodes = nodes.map(n => ({ ...n }));
+    // 기존 노드: 저장된 위치 복원, 신규 노드: 중심 근처 랜덤 위치 (장력 애니메이션 시작점)
+    const simNodes = nodes.map(n => {
+      const saved = savedPositions.get(n.id);
+      if (saved) return { ...n, x: saved.x, y: saved.y };
+      const angle = Math.random() * 2 * Math.PI;
+      const dist  = 40 + Math.random() * 120;
+      return { ...n, x: W / 2 + Math.cos(angle) * dist, y: H / 2 + Math.sin(angle) * dist };
+    });
+    const hasNewNodes = nodes.some(n => !savedPositions.has(n.id));
+
     const simEdges = edges
       .filter(e => simNodes.some(n => n.id === e.source) && simNodes.some(n => n.id === e.target))
       .map(e => ({ ...e }));
@@ -873,7 +896,10 @@
 
     updateLabelVisibility();
 
+    // 신규 노드가 있을 때만 충분한 alpha로 장력 애니메이션, 기존 노드만 있으면 미세 재정착
     simulation = d3.forceSimulation(simNodes)
+      .alpha(hasNewNodes ? 0.5 : 0.1)
+      .alphaDecay(hasNewNodes ? 0.008 : 0.03) // 낮은 decay → 더 오래 움직임 (장력 효과 가시화)
       .force('link',      d3.forceLink(simEdges).id(d => d.id)
                .distance(settings.linkDistance).strength(settings.linkStrength))
       .force('charge',    d3.forceManyBody().strength(-settings.repelStrength * 25).distanceMax(settings.repelMaxDist))
@@ -955,8 +981,6 @@
     window._graphNodeSel  = nodeSel;
     window._graphLinkSel  = linkSel;
     window._graphSimNodes = simNodes;
-
-    updateTimelineVisibility();
   }
 
   // ─── 툴팁 위치 ─────────────────────────────────────────────────────────────
