@@ -188,9 +188,14 @@ async function buildGraphData(token) {
         for (const rel of (propValue.relation || [])) {
           const targetId = rel.id.replace(/-/g, '');
           const canonical = [pageId, targetId].sort().join('|');
-          if (edgeSet.has(canonical)) continue;
+          if (edgeSet.has(canonical)) {
+            // 이미 반대 방향 엣지가 있으면 양방향으로 표시
+            const existing = edges.find(e => [e.source, e.target].sort().join('|') === canonical);
+            if (existing) existing.bidirectional = true;
+            continue;
+          }
           edgeSet.add(canonical);
-          edges.push({ source: pageId, target: targetId, label: propName });
+          edges.push({ source: pageId, target: targetId, label: propName, bidirectional: false });
         }
       }
     }

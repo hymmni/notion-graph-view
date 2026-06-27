@@ -48,9 +48,8 @@
       <span id="local-page-name" class="local-page-name">노션 페이지로 이동하세요</span>
       <div class="depth-btns">
         <span class="depth-label">깊이</span>
-        <button class="depth-btn active" data-depth="1">1</button>
-        <button class="depth-btn" data-depth="2">2</button>
-        <button class="depth-btn" data-depth="3">3</button>
+        <input id="depth-slider" type="range" min="1" max="5" step="1" value="1" class="depth-slider" />
+        <span id="depth-val" class="depth-val">1</span>
       </div>
     </div>
 
@@ -128,6 +127,10 @@
               <span class="sp-section-arrow">▾</span><span>표시</span>
             </div>
             <div class="sp-section-body">
+              <label class="sp-row sp-checkbox-row">
+                <span>화살표 표시</span>
+                <input type="checkbox" id="s-show-arrows" />
+              </label>
               <label class="sp-row sp-checkbox-row">
                 <span>레이블 표시</span>
                 <input type="checkbox" id="s-show-labels" checked />

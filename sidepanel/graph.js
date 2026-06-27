@@ -16,7 +16,6 @@
   const btnSettings    = document.getElementById('btn-settings');
   const localBar       = document.getElementById('local-bar');
   const localPageName  = document.getElementById('local-page-name');
-  const depthBtns      = document.querySelectorAll('.depth-btn');
   const loadingOverlay = document.getElementById('loading-overlay');
   const loadingMsg     = document.getElementById('loading-msg');
   const errorOverlay   = document.getElementById('error-overlay');
@@ -26,6 +25,8 @@
   const warningMsg     = document.getElementById('warning-msg');
   const tooltip        = document.getElementById('tooltip');
   const svg            = document.getElementById('graph-svg');
+  const depthSlider    = document.getElementById('depth-slider');
+  const depthVal       = document.getElementById('depth-val');
   const settingsPanel  = document.getElementById('settings-panel');
   const settingsClose  = document.getElementById('settings-close');
 
@@ -50,6 +51,7 @@
     nodeSizeScale:  1.0,
     showLabels:     true,
     labelThreshold: 0,
+    showArrows:     false,
     linkWidth:      1.5,
     linkDistance:   70,
     repelStrength:  180,
@@ -225,6 +227,7 @@
     slider('s-min-degree',      's-min-degree-val',      'minDegree',      parseInt,   fmtInt, applyFiltersAndRender);
 
     // 표시
+    check ('s-show-arrows',     'showArrows',     applyFiltersAndRender);
     check ('s-show-labels',     'showLabels',     updateLabelVisibility);
     slider('s-label-threshold', 's-label-threshold-val', 'labelThreshold', parseFloat, fmt2,   updateLabelVisibility);
     slider('s-node-size',       's-node-size-val',       'nodeSizeScale',  parseFloat, fmt1,   applyFiltersAndRender);
@@ -249,8 +252,9 @@
   }
 
   function syncSettingsUI() {
-    document.getElementById('s-hide-orphans').checked = settings.hideOrphans;
-    document.getElementById('s-show-labels').checked  = settings.showLabels;
+    document.getElementById('s-hide-orphans').checked  = settings.hideOrphans;
+    document.getElementById('s-show-arrows').checked   = settings.showArrows;
+    document.getElementById('s-show-labels').checked   = settings.showLabels;
     const fmtInt = v => String(Math.round(v));
     const fmt1   = v => parseFloat(v).toFixed(1);
     const fmt2   = v => parseFloat(v).toFixed(2);
@@ -347,12 +351,10 @@
     applyFiltersAndRender();
   });
 
-  depthBtns.forEach(btn => {
-    btn.addEventListener('click', () => {
-      settings.localDepth = parseInt(btn.dataset.depth);
-      depthBtns.forEach(b => b.classList.toggle('active', b === btn));
-      if (settings.localMode) applyFiltersAndRender();
-    });
+  depthSlider.addEventListener('input', () => {
+    settings.localDepth = parseInt(depthSlider.value);
+    depthVal.textContent = settings.localDepth;
+    if (settings.localMode) applyFiltersAndRender();
   });
 
   function updateLocalPageInfo() {
@@ -514,6 +516,18 @@
     const r = d => rScale(d.degree) * settings.nodeSizeScale;
 
     const root = d3.select(svg).attr('width', W).attr('height', H);
+
+    // 화살표 마커 정의
+    const defs = root.append('defs');
+    defs.append('marker').attr('id', 'arrow-end')
+      .attr('viewBox', '0 -4 8 8').attr('refX', 8).attr('refY', 0)
+      .attr('markerWidth', 6).attr('markerHeight', 6).attr('orient', 'auto')
+      .append('path').attr('d', 'M0,-4L8,0L0,4').attr('fill', '#4a4a5a');
+    defs.append('marker').attr('id', 'arrow-start')
+      .attr('viewBox', '0 -4 8 8').attr('refX', 0).attr('refY', 0)
+      .attr('markerWidth', 6).attr('markerHeight', 6).attr('orient', 'auto-start-reverse')
+      .append('path').attr('d', 'M0,-4L8,0L0,4').attr('fill', '#4a4a5a');
+
     const zoomG = root.append('g').attr('class', 'zoom-group');
 
     const zoom = d3.zoom().scaleExtent([0.05, 10])
@@ -537,7 +551,9 @@
     const linkSel = zoomG.append('g').attr('class', 'links')
       .selectAll('line').data(simEdges).enter().append('line')
       .attr('class', 'link')
-      .style('stroke-width', settings.linkWidth + 'px');
+      .style('stroke-width', settings.linkWidth + 'px')
+      .attr('marker-end',   settings.showArrows ? 'url(#arrow-end)'   : null)
+      .attr('marker-start', settings.showArrows ? d => d.bidirectional ? 'url(#arrow-start)' : null : null);
 
     const nodeSel = zoomG.append('g').attr('class', 'nodes')
       .selectAll('g').data(simNodes).enter().append('g')
@@ -567,8 +583,21 @@
       .force('center',    d3.forceCenter(W / 2, H / 2).strength(settings.centerStrength))
       .force('collision', d3.forceCollide().radius(d => r(d) + 5))
       .on('tick', () => {
-        linkSel.attr('x1', d => d.source.x).attr('y1', d => d.source.y)
-               .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
+        if (settings.showArrows) {
+          linkSel.each(function(d) {
+            const dx = d.target.x - d.source.x, dy = d.target.y - d.source.y;
+            const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+            const tr = r(d.target) + 9, sr = d.bidirectional ? r(d.source) + 9 : 0;
+            d3.select(this)
+              .attr('x1', d.source.x + dx / dist * sr)
+              .attr('y1', d.source.y + dy / dist * sr)
+              .attr('x2', d.target.x - dx / dist * tr)
+              .attr('y2', d.target.y - dy / dist * tr);
+          });
+        } else {
+          linkSel.attr('x1', d => d.source.x).attr('y1', d => d.source.y)
+                 .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
+        }
         nodeSel.attr('transform', d => `translate(${d.x},${d.y})`);
       });
 
