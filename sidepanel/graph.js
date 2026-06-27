@@ -846,6 +846,7 @@
         zoomG.selectAll('.node text').style('font-size', `${10 / Math.pow(currentZoomScale, 0.6)}px`);
         updateLabelVisibility();
       });
+    root.on('.zoom', null); // 이전 renderGraph에서 쌓인 zoom 리스너 제거
     root.call(zoom);
     if (savedZoomTransform) {
       currentZoomScale = savedZoomTransform.k;
@@ -943,6 +944,7 @@
     // 호버
     nodeSel
       .on('mouseenter', (event, d) => {
+        if (draggingNode) return; // 드래그 중 다른 노드에 hover 금지
         const nb = nbMap.get(d.id) || new Set();
         nodeSel.selectAll('circle')
           .classed('highlighted', n => n.id === d.id || nb.has(n.id))
