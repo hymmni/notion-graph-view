@@ -194,6 +194,15 @@ html, body {
 .sp-db-item input[type="checkbox"] { accent-color: #6366f1; width: 13px; height: 13px; flex-shrink: 0; }
 .db-color-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
 
+/* ── DB 정렬 ─────────────────────────────────────────────────────────────── */
+.sp-sort-row { display: flex; gap: 4px; margin-bottom: 6px; }
+.sp-sort-btn {
+  flex: 1; padding: 4px 0; background: #1a1a1a; border: 1px solid #2a2a2a;
+  border-radius: 4px; color: #555; font-size: 11px; cursor: pointer;
+}
+.sp-sort-btn.active { background: #1e1e35; border-color: #3730a3; color: #818cf8; }
+.sp-sort-btn:hover:not(.active) { border-color: #444; color: #aaa; }
+
 /* ── 프리셋 ──────────────────────────────────────────────────────────────── */
 .preset-save-row { display: flex; gap: 6px; margin-bottom: 6px; }
 #preset-name-input {

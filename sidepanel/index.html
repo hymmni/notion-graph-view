@@ -131,6 +131,10 @@
               <span class="sp-section-arrow">▾</span><span>그룹</span>
             </div>
             <div class="sp-section-body">
+              <div class="sp-sort-row">
+                <button class="sp-sort-btn active" data-sort="name">이름순</button>
+                <button class="sp-sort-btn" data-sort="count">페이지 수</button>
+              </div>
               <div id="sp-db-list" class="sp-db-list"></div>
             </div>
           </div>
@@ -191,6 +195,13 @@
                 <div class="sp-slider-wrap">
                   <input type="range" id="s-repel" min="0" max="500" step="10" value="180" />
                   <span class="sp-val" id="s-repel-val">180</span>
+                </div>
+              </div>
+              <div class="sp-row">
+                <span>반발 최대 거리</span>
+                <div class="sp-slider-wrap">
+                  <input type="range" id="s-repel-max" min="50" max="2000" step="50" value="200" />
+                  <span class="sp-val" id="s-repel-max-val">200</span>
                 </div>
               </div>
               <div class="sp-row">

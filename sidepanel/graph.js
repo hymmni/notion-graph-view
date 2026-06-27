@@ -44,6 +44,7 @@
   let currentDbs         = [];
   let savedZoomTransform = null;
   let currentZoomScale   = 1;
+  let dbSortMode         = 'name'; // 'name' | 'count'
 
   const DEFAULT_SETTINGS = {
     hideOrphans:    false,
@@ -53,6 +54,7 @@
     labelThreshold: 0,
     showArrows:     false,
     linkWidth:      1.5,
+    repelMaxDist:   200,
     linkDistance:   70,
     repelStrength:  180,
     centerStrength: 0.52,
@@ -205,6 +207,16 @@
     // 초기화
     document.getElementById('settings-reset').addEventListener('click', resetSettings);
 
+    // DB 정렬
+    const sortBtns = document.querySelectorAll('.sp-sort-btn');
+    sortBtns.forEach(btn => {
+      btn.addEventListener('click', () => {
+        dbSortMode = btn.dataset.sort;
+        sortBtns.forEach(b => b.classList.toggle('active', b === btn));
+        populateDbFilter();
+      });
+    });
+
     const fmtInt = v => String(Math.round(v));
     const fmt1   = v => parseFloat(v).toFixed(1);
     const fmt2   = v => parseFloat(v).toFixed(2);
@@ -239,17 +251,18 @@
     // 장력
     slider('s-center-strength', 's-center-strength-val', 'centerStrength', parseFloat, fmt2,   applyFiltersAndRender);
     slider('s-repel',           's-repel-val',           'repelStrength',  parseInt,   fmtInt, applyFiltersAndRender);
+    slider('s-repel-max',       's-repel-max-val',       'repelMaxDist',   parseInt,   fmtInt, applyFiltersAndRender);
     slider('s-link-strength',   's-link-strength-val',   'linkStrength',   parseFloat, fmt2,   applyFiltersAndRender);
     slider('s-link-distance',   's-link-distance-val',   'linkDistance',   parseInt,   fmtInt, applyFiltersAndRender);
   }
 
   function updateLabelVisibility() {
-    if (!settings.showLabels) {
-      d3.selectAll('.node text').style('display', 'none');
-    } else {
-      const minK = Math.pow(2, settings.labelThreshold);
-      d3.selectAll('.node text').style('display', currentZoomScale >= minK ? null : 'none');
-    }
+    const texts = d3.selectAll('.node text');
+    if (!settings.showLabels) { texts.style('opacity', 0); return; }
+    const minK = Math.pow(2, settings.labelThreshold);
+    const fade = Math.max(0.01, minK * 0.35);
+    const opacity = Math.min(1, Math.max(0, (currentZoomScale - (minK - fade)) / (fade * 2)));
+    texts.style('opacity', opacity);
   }
 
   function syncSettingsUI() {
@@ -266,6 +279,7 @@
       ['s-link-width',      's-link-width-val',       settings.linkWidth,      fmt1],
       ['s-center-strength', 's-center-strength-val', settings.centerStrength, fmt2],
       ['s-repel',           's-repel-val',           settings.repelStrength,  fmtInt],
+      ['s-repel-max',       's-repel-max-val',       settings.repelMaxDist,   fmtInt],
       ['s-link-strength',   's-link-strength-val',   settings.linkStrength,   fmt2],
       ['s-link-distance',   's-link-distance-val',   settings.linkDistance,   fmtInt],
     ].forEach(([id, valId, val, fmt]) => {
@@ -375,6 +389,15 @@
     list.innerHTML = '';
     if (currentDbs.length === 0) return;
 
+    // 정렬
+    const pageCounts = new Map();
+    currentNodes.forEach(n => pageCounts.set(n.parentDb, (pageCounts.get(n.parentDb) || 0) + 1));
+    const sortedDbs = [...currentDbs].sort((a, b) =>
+      dbSortMode === 'name'
+        ? a.title.localeCompare(b.title, 'ko')
+        : (pageCounts.get(b.id) || 0) - (pageCounts.get(a.id) || 0)
+    );
+
     // 전체 선택/취소 마스터 체크박스
     const allLabel = document.createElement('label');
     allLabel.className = 'sp-db-item sp-db-all';
@@ -402,8 +425,9 @@
     divider.className = 'sp-db-divider';
     list.appendChild(divider);
 
-    // 개별 DB 체크박스
-    currentDbs.forEach((db, i) => {
+    // 개별 DB 체크박스 (정렬된 순서, 색상은 원래 인덱스 기준)
+    sortedDbs.forEach((db) => {
+      const origIdx = currentDbs.findIndex(d => d.id === db.id);
       const label = document.createElement('label');
       label.className = 'sp-db-item';
 
@@ -417,15 +441,22 @@
         applyFiltersAndRender();
       });
 
+      const count = pageCounts.get(db.id) || 0;
       const dot = document.createElement('span');
       dot.className = 'db-color-dot';
-      dot.style.background = DB_COLORS[i % DB_COLORS.length];
+      dot.style.background = DB_COLORS[origIdx % DB_COLORS.length];
+
+      const nameSpan = document.createElement('span');
+      nameSpan.style.cssText = 'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+      nameSpan.textContent = (db.icon ? db.icon + ' ' : '') + db.title;
+      const countSpan = document.createElement('span');
+      countSpan.style.cssText = 'font-size:10px;color:#444;flex-shrink:0;margin-left:4px';
+      countSpan.textContent = count;
 
       label.appendChild(cb);
       label.appendChild(dot);
-      label.appendChild(document.createTextNode(
-        (db.icon ? db.icon + ' ' : '') + db.title
-      ));
+      label.appendChild(nameSpan);
+      label.appendChild(countSpan);
       list.appendChild(label);
     });
   }
@@ -619,11 +650,13 @@
 
     const zoomG = root.append('g').attr('class', 'zoom-group');
 
-    const zoom = d3.zoom().scaleExtent([0.05, 10])
+    const zoom = d3.zoom().scaleExtent([0.01, 20])
       .on('zoom', e => {
         savedZoomTransform = e.transform;
         currentZoomScale   = e.transform.k;
         zoomG.attr('transform', e.transform);
+        // 텍스트 크기: 줌에 반비율 적용 → 확대해도 노드보다 천천히 커짐
+        zoomG.selectAll('.node text').style('font-size', `${10 / Math.pow(currentZoomScale, 0.6)}px`);
         updateLabelVisibility();
       });
     root.call(zoom);
@@ -657,10 +690,12 @@
       .attr('fill', d => dbColorMap.get(d.parentDb) || '#6366f1')
       .classed('local-center', d => settings.localMode && d.id === settings.localPageId);
 
+    const initFontSize = `${10 / Math.pow(Math.max(0.1, currentZoomScale), 0.6)}px`;
     nodeSel.append('text')
       .attr('dy', d => r(d) + 10)
       .attr('text-anchor', 'middle')
       .text(d => trunc(d.title, 16))
+      .style('font-size', initFontSize)
       .classed('local-center', d => settings.localMode && d.id === settings.localPageId);
 
     updateLabelVisibility();
@@ -668,7 +703,7 @@
     simulation = d3.forceSimulation(simNodes)
       .force('link',      d3.forceLink(simEdges).id(d => d.id)
                .distance(settings.linkDistance).strength(settings.linkStrength))
-      .force('charge',    d3.forceManyBody().strength(-settings.repelStrength))
+      .force('charge',    d3.forceManyBody().strength(-settings.repelStrength).distanceMax(settings.repelMaxDist))
       .force('center',    d3.forceCenter(W / 2, H / 2).strength(settings.centerStrength))
       .force('collision', d3.forceCollide().radius(d => r(d) + 5))
       .on('tick', () => {
