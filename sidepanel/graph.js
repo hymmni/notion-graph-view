@@ -938,13 +938,6 @@
       nbMap.get(s).add(t); nbMap.get(t).add(s);
     });
 
-    // 클릭 → 현재 탭을 해당 노션 페이지로 이동
-    nodeSel.on('click', async (_e, d) => {
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (tab?.id) chrome.tabs.update(tab.id, { url: d.url });
-      else chrome.tabs.create({ url: d.url });
-    });
-
     // 호버
     nodeSel
       .on('mouseenter', (event, d) => {
@@ -1006,14 +999,31 @@
     return d3.drag()
       .on('start', (e, d) => {
         draggingNode = d;
+        d._dragStartX = e.x;
+        d._dragStartY = e.y;
+        d._dragMoved  = false;
         if (!e.active) simulation.alphaTarget(0.3).restart();
         d.fx = d.x; d.fy = d.y;
       })
-      .on('drag',  (e, d) => { d.fx = e.x; d.fy = e.y; })
-      .on('end',   (e, d) => {
-        draggingNode = null;
+      .on('drag', (e, d) => {
+        const dx = e.x - d._dragStartX, dy = e.y - d._dragStartY;
+        if (dx * dx + dy * dy > 16) d._dragMoved = true; // 4px 이상이면 드래그로 판정
+        d.fx = e.x; d.fy = e.y;
+      })
+      .on('end', (e, d) => {
+        const wasDrag = d._dragMoved;
+        draggingNode  = null;
+        d._dragMoved  = false;
         if (!e.active) simulation.alphaTarget(0);
         d.fx = null; d.fy = null;
+        // D3 drag는 mousedown→mouseup 중 1px만 움직여도 click 이벤트를 억제하므로
+        // drag end에서 직접 페이지 이동 처리
+        if (!wasDrag && d.url) {
+          chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
+            if (tab?.id) chrome.tabs.update(tab.id, { url: d.url });
+            else chrome.tabs.create({ url: d.url });
+          });
+        }
       });
   }
 
