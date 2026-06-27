@@ -73,6 +73,7 @@
     showLabels:     true,
     labelThreshold: 0,
     showArrows:     false,
+    showPageNodes:  false, // 비DB 페이지 노드 표시
     linkWidth:      1.5,
     repelMaxDist:   300,
     linkDistance:   150,
@@ -275,6 +276,9 @@
       el.addEventListener('change', () => { settings[key] = el.checked; onchange(); });
     }
 
+    // 표시 (비DB 페이지)
+    check ('s-show-page-nodes', 'showPageNodes',  applyFiltersAndRender);
+
     // 필터
     check ('s-hide-orphans',    'hideOrphans',    applyFiltersAndRender);
     slider('s-min-degree',      's-min-degree-val',      'minDegree',      parseInt,   fmtInt, applyFiltersAndRender);
@@ -306,9 +310,10 @@
   }
 
   function syncSettingsUI() {
-    document.getElementById('s-hide-orphans').checked  = settings.hideOrphans;
-    document.getElementById('s-show-arrows').checked   = settings.showArrows;
-    document.getElementById('s-show-labels').checked   = settings.showLabels;
+    document.getElementById('s-hide-orphans').checked    = settings.hideOrphans;
+    document.getElementById('s-show-arrows').checked     = settings.showArrows;
+    document.getElementById('s-show-labels').checked     = settings.showLabels;
+    document.getElementById('s-show-page-nodes').checked = settings.showPageNodes;
     const fmtInt = v => String(Math.round(v));
     const fmt1   = v => parseFloat(v).toFixed(1);
     const fmt2   = v => parseFloat(v).toFixed(2);
@@ -672,6 +677,12 @@
     let nodes = [...currentNodes];
     let edges = [...currentEdges];
 
+    // 0. 비DB 페이지 노드 필터
+    if (!settings.showPageNodes) {
+      nodes = nodes.filter(n => n.nodeType !== 'page');
+      edges = edges.filter(e => e.type !== 'parent');
+    }
+
     // 1. DB 숨기기
     if (settings.hiddenDbs.size > 0) {
       nodes = nodes.filter(n => !settings.hiddenDbs.has(n.parentDb));
@@ -834,7 +845,7 @@
 
     const root = d3.select(svg).attr('width', W).attr('height', H);
 
-    // 화살표 마커 정의 (작은 크기)
+    // 화살표 마커 정의 (relation용 / parent용)
     const defs = root.append('defs');
     defs.append('marker').attr('id', 'arrow-end')
       .attr('viewBox', '0 -3 6 6').attr('refX', 6).attr('refY', 0)
@@ -844,6 +855,11 @@
       .attr('viewBox', '0 -3 6 6').attr('refX', 0).attr('refY', 0)
       .attr('markerWidth', 3).attr('markerHeight', 3).attr('orient', 'auto-start-reverse')
       .append('path').attr('d', 'M0,-3L6,0L0,3').attr('fill', '#5a5a6e');
+    // parent 엣지 전용 마커 (회색, 항상 표시)
+    defs.append('marker').attr('id', 'arrow-parent')
+      .attr('viewBox', '0 -3 6 6').attr('refX', 6).attr('refY', 0)
+      .attr('markerWidth', 3).attr('markerHeight', 3).attr('orient', 'auto')
+      .append('path').attr('d', 'M0,-3L6,0L0,3').attr('fill', '#8b8b9e');
 
     const zoomG = root.append('g').attr('class', 'zoom-group');
 
@@ -882,10 +898,16 @@
 
     const linkSel = zoomG.append('g').attr('class', 'links')
       .selectAll('line').data(simEdges).enter().append('line')
-      .attr('class', 'link')
+      .attr('class', d => `link ${d.type || 'relation'}`)
       .style('stroke-width', settings.linkWidth + 'px')
-      .attr('marker-end',   settings.showArrows ? 'url(#arrow-end)'   : null)
-      .attr('marker-start', settings.showArrows ? d => d.bidirectional ? 'url(#arrow-start)' : null : null);
+      .attr('marker-end', d => {
+        if (d.type === 'parent') return 'url(#arrow-parent)';
+        return settings.showArrows ? 'url(#arrow-end)' : null;
+      })
+      .attr('marker-start', d => {
+        if (d.type === 'parent') return null;
+        return settings.showArrows && d.bidirectional ? 'url(#arrow-start)' : null;
+      });
 
     const nodeSel = zoomG.append('g').attr('class', 'nodes')
       .selectAll('g').data(simNodes).enter().append('g')
@@ -897,7 +919,8 @@
         const base = r(d);
         return (settings.localMode && d.id === settings.localPageId) ? base + 4 : base;
       })
-      .attr('fill', d => dbColorMap.get(d.parentDb) || '#6366f1')
+      .attr('fill', d => d.nodeType === 'page' ? '#7e7e9a' : (dbColorMap.get(d.parentDb) || '#6366f1'))
+      .classed('page-node', d => d.nodeType === 'page')
       .classed('local-center', d => settings.localMode && d.id === settings.localPageId);
 
     const initFontSize = `${10 / Math.pow(Math.max(0.1, currentZoomScale), 0.6)}px`;

@@ -3,7 +3,7 @@ const NOTION_VERSION = '2022-06-28';
 const MAX_RETRIES = 3;
 const MAX_PAGES_PER_DB = 500;
 const CACHE_KEY = 'graphCache';
-const CACHE_VERSION = 2; // 형식 변경 시 증가 → 구 캐시 자동 무효화
+const CACHE_VERSION = 3; // 형식 변경 시 증가 → 구 캐시 자동 무효화
 
 // ─── 아이콘 클릭 → 사이드패널 바로 열기 ──────────────────────────────────────
 
@@ -109,6 +109,27 @@ async function fetchAllDatabases(token) {
   return databases;
 }
 
+// ─── 비DB 페이지 목록 (search API) ───────────────────────────────────────────
+
+async function fetchNonDbPages(token, knownIds) {
+  const pages = [];
+  let cursor;
+  do {
+    const body = { filter: { value: 'page', property: 'object' }, page_size: 100 };
+    if (cursor) body.start_cursor = cursor;
+    const data = await notionFetch('/search', token, { method: 'POST', body: JSON.stringify(body) });
+    for (const item of data.results) {
+      if (item.object !== 'page' || item.archived) continue;
+      const id = item.id.replace(/-/g, '');
+      // DB 레코드(이미 처리됨)와 이미 추가된 페이지 제외
+      if (item.parent?.type === 'database_id' || knownIds.has(id)) continue;
+      pages.push(item);
+    }
+    cursor = data.has_more ? data.next_cursor : undefined;
+  } while (cursor);
+  return pages;
+}
+
 // ─── DB 내 페이지 목록 ────────────────────────────────────────────────────────
 
 async function queryAllPages(dbId, token) {
@@ -193,16 +214,50 @@ async function buildGraphData(token) {
           const targetId = rel.id.replace(/-/g, '');
           const canonical = [pageId, targetId].sort().join('|');
           if (edgeSet.has(canonical)) {
-            // 이미 반대 방향 엣지가 있으면 양방향으로 표시
             const existing = edges.find(e => [e.source, e.target].sort().join('|') === canonical);
             if (existing) existing.bidirectional = true;
             continue;
           }
           edgeSet.add(canonical);
-          edges.push({ source: pageId, target: targetId, label: propName, bidirectional: false });
+          edges.push({ source: pageId, target: targetId, label: propName, bidirectional: false, type: 'relation' });
         }
       }
     }
+  }
+
+  // ─── 비DB 페이지 노드 + 부모-자식 엣지 ────────────────────────────────────
+  let nonDbPages = [];
+  try {
+    nonDbPages = await fetchNonDbPages(token, pageNodes);
+  } catch (err) {
+    console.warn('[notion-graph] 비DB 페이지 조회 실패:', err.message);
+  }
+
+  for (const page of nonDbPages) {
+    const pageId = page.id.replace(/-/g, '');
+    pageNodes.set(pageId, {
+      id: pageId,
+      title: extractPageTitle(page) || '(제목 없음)',
+      url: page.url,
+      parentDb: null,
+      parentDbTitle: null,
+      parentDbIcon: null,
+      createdAt: page.created_time || null,
+      nodeType: 'page',
+      degree: 0,
+    });
+  }
+
+  // 부모-자식 엣지: 양쪽 모두 그래프에 있는 경우만 추가
+  for (const page of nonDbPages) {
+    if (page.parent?.type !== 'page_id') continue;
+    const childId  = page.id.replace(/-/g, '');
+    const parentId = page.parent.page_id.replace(/-/g, '');
+    if (!pageNodes.has(parentId)) continue;
+    const canonical = `${parentId}|${childId}`;
+    if (edgeSet.has(canonical)) continue;
+    edgeSet.add(canonical);
+    edges.push({ source: parentId, target: childId, label: '', bidirectional: false, type: 'parent' });
   }
 
   const degreeMap = new Map();

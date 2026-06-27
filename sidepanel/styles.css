@@ -274,7 +274,9 @@ html, body {
   stroke: #2a2a2a; stroke-width: 1.5px; stroke-opacity: .8;
   transition: stroke .15s, stroke-opacity .15s, opacity .2s ease;
 }
+.link.parent      { stroke: #8b8b9e; stroke-opacity: .55; stroke-dasharray: 5 4; }
 .link.highlighted { stroke: #6366f1; stroke-opacity: 1; }
+.link.parent.highlighted { stroke: #a5b4fc; }
 .link.faded       { stroke-opacity: .08; }
 
 .node circle {
