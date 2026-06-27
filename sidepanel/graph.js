@@ -1008,15 +1008,17 @@
     return d3.drag()
       .on('start', (e, d) => {
         draggingNode = d;
-        d._dragStartX = e.x;
-        d._dragStartY = e.y;
-        d._dragMoved  = false;
+        // 화면 픽셀 기준으로 저장 (그래프 좌표계는 줌에 따라 달라지므로)
+        d._dragStartCX = e.sourceEvent?.clientX ?? 0;
+        d._dragStartCY = e.sourceEvent?.clientY ?? 0;
+        d._dragMoved   = false;
         if (!e.active) simulation.alphaTarget(0.3).restart();
         d.fx = d.x; d.fy = d.y;
       })
       .on('drag', (e, d) => {
-        const dx = e.x - d._dragStartX, dy = e.y - d._dragStartY;
-        if (dx * dx + dy * dy > 16) d._dragMoved = true; // 4px 이상이면 드래그로 판정
+        const dx = (e.sourceEvent?.clientX ?? 0) - d._dragStartCX;
+        const dy = (e.sourceEvent?.clientY ?? 0) - d._dragStartCY;
+        if (dx * dx + dy * dy > 25) d._dragMoved = true; // 화면 5px 이상이면 드래그
         d.fx = e.x; d.fy = e.y;
       })
       .on('end', (e, d) => {
@@ -1025,16 +1027,20 @@
         d._dragMoved  = false;
         if (!e.active) simulation.alphaTarget(0);
         d.fx = null; d.fy = null;
-        // D3 drag는 mousedown→mouseup 중 1px만 움직여도 click 이벤트를 억제하므로
-        // drag end에서 직접 페이지 이동 처리.
-        // async 콜백 체인에서 사용자 제스처 컨텍스트가 소실될 수 있으므로
-        // 캐시된 knownTabId로 동기 호출; 실패 시 새 탭으로 폴백.
-        if (!wasDrag && d.url) {
+        if (!wasDrag) {
+          if (!d.url) {
+            console.warn('[notion-graph] 클릭한 노드에 url 없음:', d.id, d.title);
+            return;
+          }
           if (knownTabId) {
             chrome.tabs.update(knownTabId, { url: d.url }, () => {
-              if (chrome.runtime.lastError) chrome.tabs.create({ url: d.url });
+              if (chrome.runtime.lastError) {
+                console.warn('[notion-graph] tabs.update 실패, 새 탭 열기:', chrome.runtime.lastError.message);
+                chrome.tabs.create({ url: d.url });
+              }
             });
           } else {
+            console.warn('[notion-graph] knownTabId 없음, 새 탭 열기');
             chrome.tabs.create({ url: d.url });
           }
         }
