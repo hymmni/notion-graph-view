@@ -848,10 +848,13 @@
       });
     root.on('.zoom', null); // 이전 renderGraph에서 쌓인 zoom 리스너 제거
     root.call(zoom);
-    if (savedZoomTransform) {
-      currentZoomScale = savedZoomTransform.k;
-      root.call(zoom.transform, savedZoomTransform);
-    }
+    // 합성 zoom 이벤트 없이 복원 — root.call(zoom.transform,...) 대신
+    // svg.__zoom(D3 내부 정본값)을 직접 읽어 zoomG에 적용
+    if (savedZoomTransform === null) svg.__zoom = d3.zoomIdentity; // 리셋 신호
+    const restoreT = d3.zoomTransform(svg);
+    currentZoomScale = restoreT.k;
+    savedZoomTransform = restoreT;
+    zoomG.attr('transform', restoreT);
 
     // 기존 노드: 저장된 위치 복원, 신규 노드: 중심 근처 랜덤 위치 (장력 애니메이션 시작점)
     const simNodes = nodes.map(n => {
