@@ -50,6 +50,7 @@
   let savedPositions     = new Map(); // 노드 위치 저장 (re-render 시 복원)
   let activeSearch       = '';     // 현재 검색어 (mouseleave 후 복원용)
   let knownWindowId      = null;   // Chrome sidePanel에서 currentWindow 오인식 방지용
+  let knownTabId         = null;   // 노드 클릭 시 동기 navigate용 탭 ID 캐시
 
   const DB_ORDER_KEY = 'dbCustomOrder';
 
@@ -150,7 +151,7 @@
 
   // ─── SW → 사이드패널 수신 ─────────────────────────────────────────────────
   try {
-    chrome.runtime.onMessage.addListener((msg) => {
+    chrome.runtime.onMessage.addListener((msg, sender) => {
       if (msg.type === 'GRAPH_UPDATED') {
         if (graphScreen.classList.contains('hidden')) return;
         applyGraphData(msg);
@@ -162,6 +163,11 @@
         settings.localPageTitle = n ? n.title : null;
         updateLocalPageInfo();
         if (settings.localMode) applyFiltersAndRender();
+        // content script 탭 정보로 knownTabId/WindowId 최신화
+        if (sender?.tab?.id) {
+          knownTabId    = sender.tab.id;
+          knownWindowId = sender.tab.windowId;
+        }
       }
     });
   } catch (e) { if (isCtxInvalid(e?.message)) window.location.reload(); }
@@ -777,7 +783,8 @@
     // 현재 열린 탭에서 노션 페이지 ID 직접 감지
     chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
       if (tab) {
-        knownWindowId = tab.windowId; // 노드 클릭 시 페이지 이동에 재사용
+        knownWindowId = tab.windowId;
+        knownTabId    = tab.id; // 노드 클릭 시 동기 navigate에 재사용
         const pid = extractPageIdFromUrl(tab.url || '');
         if (pid) {
           settings.localPageId = pid;
@@ -1020,15 +1027,16 @@
         d.fx = null; d.fy = null;
         // D3 drag는 mousedown→mouseup 중 1px만 움직여도 click 이벤트를 억제하므로
         // drag end에서 직접 페이지 이동 처리.
-        // Chrome sidePanel에서 currentWindow가 오인식될 수 있으므로 windowId 명시.
+        // async 콜백 체인에서 사용자 제스처 컨텍스트가 소실될 수 있으므로
+        // 캐시된 knownTabId로 동기 호출; 실패 시 새 탭으로 폴백.
         if (!wasDrag && d.url) {
-          const q = knownWindowId
-            ? { active: true, windowId: knownWindowId }
-            : { active: true, lastFocusedWindow: true };
-          chrome.tabs.query(q, ([tab]) => {
-            if (tab?.id) chrome.tabs.update(tab.id, { url: d.url });
-            else chrome.tabs.create({ url: d.url });
-          });
+          if (knownTabId) {
+            chrome.tabs.update(knownTabId, { url: d.url }, () => {
+              if (chrome.runtime.lastError) chrome.tabs.create({ url: d.url });
+            });
+          } else {
+            chrome.tabs.create({ url: d.url });
+          }
         }
       });
   }
