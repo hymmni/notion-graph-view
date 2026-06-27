@@ -186,37 +186,51 @@
               <div class="sp-row">
                 <span>중심 장력</span>
                 <div class="sp-slider-wrap">
-                  <input type="range" id="s-center-strength" min="0" max="1" step="0.01" value="0.52" />
-                  <span class="sp-val" id="s-center-strength-val">0.52</span>
+                  <input type="range" id="s-center-strength" min="0" max="1" step="0.01" value="0.3" />
+                  <span class="sp-val" id="s-center-strength-val">0.30</span>
                 </div>
               </div>
               <div class="sp-row">
                 <span>반발력</span>
                 <div class="sp-slider-wrap">
-                  <input type="range" id="s-repel" min="0" max="500" step="10" value="180" />
-                  <span class="sp-val" id="s-repel-val">180</span>
+                  <input type="range" id="s-repel" min="0" max="20" step="0.5" value="7" />
+                  <span class="sp-val" id="s-repel-val">7.0</span>
                 </div>
               </div>
               <div class="sp-row">
                 <span>반발 최대 거리</span>
                 <div class="sp-slider-wrap">
-                  <input type="range" id="s-repel-max" min="50" max="2000" step="50" value="200" />
-                  <span class="sp-val" id="s-repel-max-val">200</span>
+                  <input type="range" id="s-repel-max" min="50" max="2000" step="50" value="300" />
+                  <span class="sp-val" id="s-repel-max-val">300</span>
                 </div>
               </div>
               <div class="sp-row">
                 <span>링크 장력</span>
                 <div class="sp-slider-wrap">
-                  <input type="range" id="s-link-strength" min="0" max="1" step="0.01" value="0.5" />
-                  <span class="sp-val" id="s-link-strength-val">0.50</span>
+                  <input type="range" id="s-link-strength" min="0" max="1" step="0.01" value="0.7" />
+                  <span class="sp-val" id="s-link-strength-val">0.70</span>
                 </div>
               </div>
               <div class="sp-row">
                 <span>링크 거리</span>
                 <div class="sp-slider-wrap">
-                  <input type="range" id="s-link-distance" min="30" max="500" step="10" value="70" />
-                  <span class="sp-val" id="s-link-distance-val">70</span>
+                  <input type="range" id="s-link-distance" min="30" max="500" step="10" value="150" />
+                  <span class="sp-val" id="s-link-distance-val">150</span>
                 </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 타임라인 -->
+          <div class="sp-section">
+            <div class="sp-section-header">
+              <span class="sp-section-arrow">▾</span><span>타임라인</span>
+            </div>
+            <div class="sp-section-body">
+              <div class="tl-controls">
+                <button id="tl-play" class="tl-play-btn" disabled>▶</button>
+                <input type="range" id="tl-slider" class="tl-slider" min="0" max="100" value="100" disabled />
+                <span id="tl-date" class="tl-date">-</span>
               </div>
             </div>
           </div>

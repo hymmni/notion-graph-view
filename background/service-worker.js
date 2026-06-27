@@ -3,6 +3,7 @@ const NOTION_VERSION = '2022-06-28';
 const MAX_RETRIES = 3;
 const MAX_PAGES_PER_DB = 500;
 const CACHE_KEY = 'graphCache';
+const CACHE_VERSION = 2; // 형식 변경 시 증가 → 구 캐시 자동 무효화
 
 // ─── 아이콘 클릭 → 사이드패널 바로 열기 ──────────────────────────────────────
 
@@ -14,12 +15,15 @@ if (chrome.sidePanel.setPanelBehavior) {
 
 async function getCachedGraph() {
   const result = await chrome.storage.local.get(CACHE_KEY);
-  return result[CACHE_KEY] || null; // { nodes, edges, dbs, cachedAt }
+  const cache = result[CACHE_KEY];
+  if (!cache || cache.version !== CACHE_VERSION) return null;
+  return cache;
 }
 
 async function setCachedGraph(data) {
   await chrome.storage.local.set({
     [CACHE_KEY]: {
+      version: CACHE_VERSION,
       nodes: data.nodes,
       edges: data.edges,
       dbs: data.dbs,
@@ -180,6 +184,7 @@ async function buildGraphData(token) {
         parentDb: dbInfo.id,
         parentDbTitle: dbInfo.title,
         parentDbIcon: dbInfo.icon,
+        createdAt: page.created_time || null,
         degree: 0,
       });
 

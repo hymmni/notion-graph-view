@@ -130,10 +130,13 @@ html, body {
 
 /* ── 설정 패널 ───────────────────────────────────────────────────────────── */
 .settings-panel {
-  position: absolute; bottom: 0; left: 0; right: 0;
-  max-height: 58%; background: rgba(16,16,16,.97);
-  border-top: 1px solid #272727; z-index: 25; display: flex; flex-direction: column;
-  box-shadow: 0 -4px 20px rgba(0,0,0,.6);
+  position: absolute; top: 6px; right: 6px;
+  width: 300px; max-height: calc(100% - 12px);
+  background: rgba(14,14,14,.98);
+  border: 1px solid #2a2a2a; border-radius: 10px;
+  z-index: 25; display: flex; flex-direction: column;
+  box-shadow: 0 6px 28px rgba(0,0,0,.75);
+  overflow: hidden;
 }
 .sp-header {
   flex-shrink: 0; display: flex; align-items: center; justify-content: space-between;
@@ -147,7 +150,7 @@ html, body {
 }
 .sp-icon-btn:hover { color: #ccc; background: #222; }
 
-.sp-body { overflow-y: auto; padding: 0 0 8px; }
+.sp-body { overflow-y: auto; padding: 0 0 8px; flex: 1; min-height: 0; }
 
 /* 토글 섹션 */
 .sp-section { padding: 0; border-bottom: 1px solid #1a1a1a; }
@@ -237,6 +240,26 @@ html, body {
   border-radius: 3px; flex-shrink: 0;
 }
 .preset-del-btn:hover { color: #f87171; background: #2d1515; }
+
+/* ── 타임라인 ────────────────────────────────────────────────────────────── */
+.tl-controls { display: flex; align-items: center; gap: 6px; }
+.tl-play-btn {
+  width: 26px; height: 26px; border-radius: 50%; background: #1e1e35;
+  border: 1px solid #3730a3; color: #818cf8; cursor: pointer; font-size: 11px;
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+}
+.tl-play-btn:hover:not(:disabled) { background: #2d2b55; }
+.tl-play-btn:disabled { opacity: 0.3; cursor: default; }
+.tl-slider {
+  flex: 1; min-width: 0; accent-color: #6366f1; cursor: pointer;
+  -webkit-appearance: none; height: 3px; background: #2a2a2a; border-radius: 2px; outline: none;
+}
+.tl-slider::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 11px; height: 11px;
+  background: #6366f1; border-radius: 50%; cursor: pointer;
+}
+.tl-slider:disabled { opacity: 0.3; cursor: default; }
+.tl-date { font-size: 10px; color: #555; white-space: nowrap; min-width: 58px; text-align: right; }
 
 /* ── D3 그래프 요소 ──────────────────────────────────────────────────────── */
 .link {

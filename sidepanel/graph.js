@@ -54,11 +54,11 @@
     labelThreshold: 0,
     showArrows:     false,
     linkWidth:      1.5,
-    repelMaxDist:   200,
-    linkDistance:   70,
-    repelStrength:  180,
-    centerStrength: 0.52,
-    linkStrength:   0.5,
+    repelMaxDist:   300,
+    linkDistance:   150,
+    repelStrength:  7,    // 0~20 표시, 내부 ×25 적용 (Obsidian 스케일)
+    centerStrength: 0.3,
+    linkStrength:   0.7,
   };
 
   const settings = {
@@ -151,6 +151,7 @@
   async function init() {
     bindSettings();
     initPresets();
+    initTimelineControls();
     try {
       const { hasToken } = await sendMsg({ type: 'GET_STATUS' });
       if (hasToken) { showScreen(graphScreen); loadGraph(); }
@@ -250,7 +251,7 @@
 
     // 장력
     slider('s-center-strength', 's-center-strength-val', 'centerStrength', parseFloat, fmt2,   applyFiltersAndRender);
-    slider('s-repel',           's-repel-val',           'repelStrength',  parseInt,   fmtInt, applyFiltersAndRender);
+    slider('s-repel',           's-repel-val',           'repelStrength',  parseFloat, fmt1,   applyFiltersAndRender);
     slider('s-repel-max',       's-repel-max-val',       'repelMaxDist',   parseInt,   fmtInt, applyFiltersAndRender);
     slider('s-link-strength',   's-link-strength-val',   'linkStrength',   parseFloat, fmt2,   applyFiltersAndRender);
     slider('s-link-distance',   's-link-distance-val',   'linkDistance',   parseInt,   fmtInt, applyFiltersAndRender);
@@ -278,7 +279,7 @@
       ['s-node-size',       's-node-size-val',       settings.nodeSizeScale,  fmt1],
       ['s-link-width',      's-link-width-val',       settings.linkWidth,      fmt1],
       ['s-center-strength', 's-center-strength-val', settings.centerStrength, fmt2],
-      ['s-repel',           's-repel-val',           settings.repelStrength,  fmtInt],
+      ['s-repel',           's-repel-val',           settings.repelStrength,  fmt1],
       ['s-repel-max',       's-repel-max-val',       settings.repelMaxDist,   fmtInt],
       ['s-link-strength',   's-link-strength-val',   settings.linkStrength,   fmt2],
       ['s-link-distance',   's-link-distance-val',   settings.linkDistance,   fmtInt],
@@ -461,6 +462,72 @@
     });
   }
 
+  // ─── 타임라인 ──────────────────────────────────────────────────────────────
+  let tlPos     = 100; // 0~100
+  let tlPlaying = false;
+  let tlTimer   = null;
+  let tlMinMs   = 0;
+  let tlMaxMs   = 0;
+
+  function initTimeline() {
+    const dates = currentNodes
+      .map(n => n.createdAt).filter(Boolean)
+      .map(s => new Date(s).getTime()).filter(t => !isNaN(t));
+    const slider  = document.getElementById('tl-slider');
+    const playBtn = document.getElementById('tl-play');
+    if (dates.length === 0) {
+      slider.disabled = true; playBtn.disabled = true;
+      document.getElementById('tl-date').textContent = '날짜 데이터 없음';
+      return;
+    }
+    tlMinMs = Math.min(...dates);
+    tlMaxMs = Math.max(...dates);
+    slider.disabled = false; playBtn.disabled = false;
+    updateTlLabel();
+  }
+
+  function updateTlLabel() {
+    const ms = tlMinMs + (tlMaxMs - tlMinMs) * tlPos / 100;
+    const d  = new Date(ms);
+    document.getElementById('tl-date').textContent =
+      tlPos >= 100 ? '전체'
+        : `${d.getFullYear()}.${String(d.getMonth()+1).padStart(2,'0')}.${String(d.getDate()).padStart(2,'0')}`;
+  }
+
+  function getTlCutoff() {
+    if (tlPos >= 100 || tlMinMs === 0) return null;
+    return tlMinMs + (tlMaxMs - tlMinMs) * tlPos / 100;
+  }
+
+  function tlTogglePlay() {
+    if (tlPlaying) {
+      tlPlaying = false; clearInterval(tlTimer);
+      document.getElementById('tl-play').textContent = '▶'; return;
+    }
+    if (tlPos >= 100) tlPos = 0;
+    tlPlaying = true;
+    document.getElementById('tl-play').textContent = '⏸';
+    tlTimer = setInterval(() => {
+      tlPos = Math.min(100, tlPos + 1);
+      document.getElementById('tl-slider').value = tlPos;
+      updateTlLabel();
+      applyFiltersAndRender();
+      if (tlPos >= 100) {
+        tlPlaying = false; clearInterval(tlTimer);
+        document.getElementById('tl-play').textContent = '▶';
+      }
+    }, 80);
+  }
+
+  function initTimelineControls() {
+    document.getElementById('tl-slider').addEventListener('input', e => {
+      tlPos = parseInt(e.target.value);
+      updateTlLabel();
+      applyFiltersAndRender();
+    });
+    document.getElementById('tl-play').addEventListener('click', tlTogglePlay);
+  }
+
   // ─── 로컬 그래프 ───────────────────────────────────────────────────────────
   btnLocal.addEventListener('click', () => {
     settings.localMode = !settings.localMode;
@@ -537,6 +604,14 @@
       }
     }
 
+    // 5. 타임라인 필터
+    const tlCutoff = getTlCutoff();
+    if (tlCutoff !== null) {
+      nodes = nodes.filter(n => !n.createdAt || new Date(n.createdAt).getTime() <= tlCutoff);
+      const ids = new Set(nodes.map(n => n.id));
+      edges = edges.filter(e => ids.has(e.source) && ids.has(e.target));
+    }
+
     renderGraph(nodes, edges, currentDbs);
   }
 
@@ -599,6 +674,7 @@
     dbCountEl.textContent = `${currentNodes.length}개 페이지 · ${currentDbs.length}개 DB`;
     updateLocalPageInfo();
     populateDbFilter();
+    initTimeline();
     applyFiltersAndRender();
   }
 
@@ -637,16 +713,16 @@
 
     const root = d3.select(svg).attr('width', W).attr('height', H);
 
-    // 화살표 마커 정의
+    // 화살표 마커 정의 (작은 크기)
     const defs = root.append('defs');
     defs.append('marker').attr('id', 'arrow-end')
-      .attr('viewBox', '0 -4 8 8').attr('refX', 8).attr('refY', 0)
-      .attr('markerWidth', 6).attr('markerHeight', 6).attr('orient', 'auto')
-      .append('path').attr('d', 'M0,-4L8,0L0,4').attr('fill', '#4a4a5a');
+      .attr('viewBox', '0 -3 6 6').attr('refX', 6).attr('refY', 0)
+      .attr('markerWidth', 3).attr('markerHeight', 3).attr('orient', 'auto')
+      .append('path').attr('d', 'M0,-3L6,0L0,3').attr('fill', '#5a5a6e');
     defs.append('marker').attr('id', 'arrow-start')
-      .attr('viewBox', '0 -4 8 8').attr('refX', 0).attr('refY', 0)
-      .attr('markerWidth', 6).attr('markerHeight', 6).attr('orient', 'auto-start-reverse')
-      .append('path').attr('d', 'M0,-4L8,0L0,4').attr('fill', '#4a4a5a');
+      .attr('viewBox', '0 -3 6 6').attr('refX', 0).attr('refY', 0)
+      .attr('markerWidth', 3).attr('markerHeight', 3).attr('orient', 'auto-start-reverse')
+      .append('path').attr('d', 'M0,-3L6,0L0,3').attr('fill', '#5a5a6e');
 
     const zoomG = root.append('g').attr('class', 'zoom-group');
 
@@ -703,7 +779,7 @@
     simulation = d3.forceSimulation(simNodes)
       .force('link',      d3.forceLink(simEdges).id(d => d.id)
                .distance(settings.linkDistance).strength(settings.linkStrength))
-      .force('charge',    d3.forceManyBody().strength(-settings.repelStrength).distanceMax(settings.repelMaxDist))
+      .force('charge',    d3.forceManyBody().strength(-settings.repelStrength * 25).distanceMax(settings.repelMaxDist))
       .force('center',    d3.forceCenter(W / 2, H / 2).strength(settings.centerStrength))
       .force('collision', d3.forceCollide().radius(d => r(d) + 5))
       .on('tick', () => {
@@ -711,7 +787,7 @@
           linkSel.each(function(d) {
             const dx = d.target.x - d.source.x, dy = d.target.y - d.source.y;
             const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-            const tr = r(d.target) + 9, sr = d.bidirectional ? r(d.source) + 9 : 0;
+            const tr = r(d.target) + 5, sr = d.bidirectional ? r(d.source) + 5 : 0;
             d3.select(this)
               .attr('x1', d.source.x + dx / dist * sr)
               .attr('y1', d.source.y + dy / dist * sr)
