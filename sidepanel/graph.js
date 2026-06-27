@@ -148,6 +148,7 @@
   // ─── 초기화 ────────────────────────────────────────────────────────────────
   async function init() {
     bindSettings();
+    initPresets();
     try {
       const { hasToken } = await sendMsg({ type: 'GET_STATUS' });
       if (hasToken) { showScreen(graphScreen); loadGraph(); }
@@ -188,7 +189,7 @@
   btnSettings.addEventListener('click', () => {
     const open = settingsPanel.classList.toggle('hidden');
     btnSettings.classList.toggle('active', !open);
-    if (!open) populateDbFilter(); // DB 목록 최신화
+    if (!open) { populateDbFilter(); populatePresetList(); }
   });
   settingsClose.addEventListener('click', () => {
     settingsPanel.classList.add('hidden');
@@ -279,6 +280,94 @@
     settings.hiddenDbs.clear();
     syncSettingsUI();
     applyFiltersAndRender();
+  }
+
+  // ─── 프리셋 ────────────────────────────────────────────────────────────────
+  const PRESET_KEY = 'graphPresets';
+
+  async function loadPresets() {
+    const r = await chrome.storage.local.get(PRESET_KEY);
+    return r[PRESET_KEY] || [];
+  }
+
+  async function savePresets(presets) {
+    await chrome.storage.local.set({ [PRESET_KEY]: presets });
+  }
+
+  function captureCurrentSettings() {
+    return {
+      ...DEFAULT_SETTINGS,
+      ...Object.fromEntries(
+        Object.keys(DEFAULT_SETTINGS).map(k => [k, settings[k]])
+      ),
+      hiddenDbs: [...settings.hiddenDbs],
+    };
+  }
+
+  function applyPresetData(data) {
+    Object.keys(DEFAULT_SETTINGS).forEach(k => {
+      if (data[k] !== undefined) settings[k] = data[k];
+    });
+    settings.hiddenDbs = new Set(data.hiddenDbs || []);
+    syncSettingsUI();
+    applyFiltersAndRender();
+  }
+
+  async function populatePresetList() {
+    const list = document.getElementById('preset-list');
+    list.innerHTML = '';
+    const presets = await loadPresets();
+    if (presets.length === 0) {
+      list.innerHTML = '<div style="font-size:11px;color:#444;padding:4px 2px">저장된 프리셋 없음</div>';
+      return;
+    }
+    presets.forEach((preset, idx) => {
+      const item = document.createElement('div');
+      item.className = 'preset-item';
+
+      const nameEl = document.createElement('span');
+      nameEl.className = 'preset-name';
+      nameEl.title = preset.name;
+      nameEl.textContent = preset.name;
+
+      const applyBtn = document.createElement('button');
+      applyBtn.className = 'preset-apply-btn';
+      applyBtn.textContent = '적용';
+      applyBtn.addEventListener('click', () => applyPresetData(preset.data));
+
+      const delBtn = document.createElement('button');
+      delBtn.className = 'preset-del-btn';
+      delBtn.title = '삭제';
+      delBtn.textContent = '✕';
+      delBtn.addEventListener('click', async () => {
+        const ps = await loadPresets();
+        ps.splice(idx, 1);
+        await savePresets(ps);
+        populatePresetList();
+      });
+
+      item.appendChild(nameEl);
+      item.appendChild(applyBtn);
+      item.appendChild(delBtn);
+      list.appendChild(item);
+    });
+  }
+
+  function initPresets() {
+    const nameInput = document.getElementById('preset-name-input');
+    document.getElementById('preset-save-btn').addEventListener('click', async () => {
+      const name = nameInput.value.trim();
+      if (!name) { nameInput.focus(); return; }
+      const presets = await loadPresets();
+      presets.push({ name, data: captureCurrentSettings() });
+      await savePresets(presets);
+      nameInput.value = '';
+      populatePresetList();
+    });
+    nameInput.addEventListener('keydown', e => {
+      if (e.key === 'Enter') document.getElementById('preset-save-btn').click();
+    });
+    populatePresetList();
   }
 
   function populateDbFilter() {
