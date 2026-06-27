@@ -44,7 +44,23 @@
   let currentDbs         = [];
   let savedZoomTransform = null;
   let currentZoomScale   = 1;
-  let dbSortMode         = 'name'; // 'name' | 'count'
+  let dbSortMode         = 'name'; // 'name' | 'count' | 'custom'
+  let dbOrder            = [];     // custom sort order (array of db.id)
+  let draggingNode       = null;   // 드래그 중인 노드 (hover 유지용)
+
+  const DB_ORDER_KEY = 'dbCustomOrder';
+
+  function extractPageIdFromUrl(url) {
+    try {
+      const p = new URL(url).pathname;
+      const m1 = p.match(/-([a-f0-9]{32})(?:[?#]|$)/i); if (m1) return m1[1].toLowerCase();
+      const last = p.split('/').filter(Boolean).pop() || '';
+      const m2 = last.match(/^([a-f0-9]{32})$/i); if (m2) return m2[1].toLowerCase();
+      const m3 = p.match(/([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})/i);
+      if (m3) return m3[1].replace(/-/g, '').toLowerCase();
+    } catch {}
+    return null;
+  }
 
   const DEFAULT_SETTINGS = {
     hideOrphans:    false,
@@ -152,6 +168,9 @@
     bindSettings();
     initPresets();
     initTimelineControls();
+    // 수동 DB 정렬 순서 로드
+    const { [DB_ORDER_KEY]: savedOrder } = await chrome.storage.local.get(DB_ORDER_KEY);
+    if (Array.isArray(savedOrder)) dbOrder = savedOrder;
     try {
       const { hasToken } = await sendMsg({ type: 'GET_STATUS' });
       if (hasToken) { showScreen(graphScreen); loadGraph(); }
@@ -212,7 +231,18 @@
     const sortBtns = document.querySelectorAll('.sp-sort-btn');
     sortBtns.forEach(btn => {
       btn.addEventListener('click', () => {
+        const prev = dbSortMode;
         dbSortMode = btn.dataset.sort;
+        // 수동 모드로 처음 진입 시 현재 정렬 순서를 초기 순서로 저장
+        if (dbSortMode === 'custom' && prev !== 'custom') {
+          const pageCounts = new Map();
+          currentNodes.forEach(n => pageCounts.set(n.parentDb, (pageCounts.get(n.parentDb) || 0) + 1));
+          const base = prev === 'name'
+            ? [...currentDbs].sort((a, b) => a.title.localeCompare(b.title, 'ko'))
+            : [...currentDbs].sort((a, b) => (pageCounts.get(b.id) || 0) - (pageCounts.get(a.id) || 0));
+          dbOrder = base.map(d => d.id);
+          saveDbOrder();
+        }
         sortBtns.forEach(b => b.classList.toggle('active', b === btn));
         populateDbFilter();
       });
@@ -385,52 +415,92 @@
     populatePresetList();
   }
 
+  function getSortedDbsCustom() {
+    const dbMap = new Map(currentDbs.map(d => [d.id, d]));
+    const ordered = dbOrder.filter(id => dbMap.has(id)).map(id => dbMap.get(id));
+    currentDbs.forEach(d => { if (!dbOrder.includes(d.id)) ordered.push(d); });
+    return ordered;
+  }
+
+  async function saveDbOrder() {
+    await chrome.storage.local.set({ [DB_ORDER_KEY]: dbOrder });
+  }
+
   function populateDbFilter() {
     const list = document.getElementById('sp-db-list');
     list.innerHTML = '';
     if (currentDbs.length === 0) return;
 
-    // 정렬
     const pageCounts = new Map();
     currentNodes.forEach(n => pageCounts.set(n.parentDb, (pageCounts.get(n.parentDb) || 0) + 1));
-    const sortedDbs = [...currentDbs].sort((a, b) =>
-      dbSortMode === 'name'
-        ? a.title.localeCompare(b.title, 'ko')
-        : (pageCounts.get(b.id) || 0) - (pageCounts.get(a.id) || 0)
-    );
 
-    // 전체 선택/취소 마스터 체크박스
+    const sortedDbs =
+      dbSortMode === 'name'   ? [...currentDbs].sort((a, b) => a.title.localeCompare(b.title, 'ko')) :
+      dbSortMode === 'count'  ? [...currentDbs].sort((a, b) => (pageCounts.get(b.id) || 0) - (pageCounts.get(a.id) || 0)) :
+      getSortedDbsCustom();
+
+    // 전체 선택/취소
     const allLabel = document.createElement('label');
     allLabel.className = 'sp-db-item sp-db-all';
     const allCb = document.createElement('input');
     allCb.type = 'checkbox';
-
     function syncAllCb() {
-      const hiddenCount = currentDbs.filter(db => settings.hiddenDbs.has(db.id)).length;
-      allCb.checked       = hiddenCount === 0;
-      allCb.indeterminate = hiddenCount > 0 && hiddenCount < currentDbs.length;
+      const h = currentDbs.filter(db => settings.hiddenDbs.has(db.id)).length;
+      allCb.checked = h === 0; allCb.indeterminate = h > 0 && h < currentDbs.length;
     }
     syncAllCb();
-
     allCb.addEventListener('change', () => {
       if (allCb.checked) settings.hiddenDbs.clear();
       else currentDbs.forEach(db => settings.hiddenDbs.add(db.id));
-      populateDbFilter();
-      applyFiltersAndRender();
+      populateDbFilter(); applyFiltersAndRender();
     });
     allLabel.appendChild(allCb);
     allLabel.appendChild(document.createTextNode('전체'));
     list.appendChild(allLabel);
+    list.appendChild(Object.assign(document.createElement('div'), { className: 'sp-db-divider' }));
 
-    const divider = document.createElement('div');
-    divider.className = 'sp-db-divider';
-    list.appendChild(divider);
+    let dragSrcId = null;
 
-    // 개별 DB 체크박스 (정렬된 순서, 색상은 원래 인덱스 기준)
     sortedDbs.forEach((db) => {
       const origIdx = currentDbs.findIndex(d => d.id === db.id);
-      const label = document.createElement('label');
-      label.className = 'sp-db-item';
+      const item = document.createElement('div');
+      item.className = 'sp-db-item sp-db-row';
+      item.dataset.dbId = db.id;
+
+      // 수동 정렬 드래그 핸들
+      if (dbSortMode === 'custom') {
+        item.draggable = true;
+        const handle = document.createElement('span');
+        handle.className = 'db-drag-handle';
+        handle.textContent = '⠿';
+        item.appendChild(handle);
+
+        item.addEventListener('dragstart', e => {
+          dragSrcId = db.id;
+          e.dataTransfer.effectAllowed = 'move';
+          item.classList.add('db-dragging');
+        });
+        item.addEventListener('dragend', () => {
+          item.classList.remove('db-dragging');
+          list.querySelectorAll('.db-drag-over').forEach(el => el.classList.remove('db-drag-over'));
+        });
+        item.addEventListener('dragover', e => { e.preventDefault(); item.classList.add('db-drag-over'); });
+        item.addEventListener('dragleave', () => item.classList.remove('db-drag-over'));
+        item.addEventListener('drop', e => {
+          e.preventDefault();
+          item.classList.remove('db-drag-over');
+          if (!dragSrcId || dragSrcId === db.id) return;
+          const arr = dbSortMode === 'custom' ? getSortedDbsCustom().map(d => d.id) : sortedDbs.map(d => d.id);
+          // sync dbOrder with current view first
+          dbOrder = arr;
+          const si = dbOrder.indexOf(dragSrcId), ti = dbOrder.indexOf(db.id);
+          if (si === -1 || ti === -1) return;
+          dbOrder.splice(si, 1);
+          dbOrder.splice(ti, 0, dragSrcId);
+          saveDbOrder();
+          populateDbFilter();
+        });
+      }
 
       const cb = document.createElement('input');
       cb.type = 'checkbox';
@@ -438,11 +508,9 @@
       cb.addEventListener('change', () => {
         if (cb.checked) settings.hiddenDbs.delete(db.id);
         else settings.hiddenDbs.add(db.id);
-        syncAllCb();
-        applyFiltersAndRender();
+        syncAllCb(); applyFiltersAndRender();
       });
 
-      const count = pageCounts.get(db.id) || 0;
       const dot = document.createElement('span');
       dot.className = 'db-color-dot';
       dot.style.background = DB_COLORS[origIdx % DB_COLORS.length];
@@ -450,15 +518,16 @@
       const nameSpan = document.createElement('span');
       nameSpan.style.cssText = 'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
       nameSpan.textContent = (db.icon ? db.icon + ' ' : '') + db.title;
+
       const countSpan = document.createElement('span');
       countSpan.style.cssText = 'font-size:10px;color:#444;flex-shrink:0;margin-left:4px';
-      countSpan.textContent = count;
+      countSpan.textContent = pageCounts.get(db.id) || 0;
 
-      label.appendChild(cb);
-      label.appendChild(dot);
-      label.appendChild(nameSpan);
-      label.appendChild(countSpan);
-      list.appendChild(label);
+      item.appendChild(cb);
+      item.appendChild(dot);
+      item.appendChild(nameSpan);
+      item.appendChild(countSpan);
+      list.appendChild(item);
     });
   }
 
@@ -499,6 +568,30 @@
     return tlMinMs + (tlMaxMs - tlMinMs) * tlPos / 100;
   }
 
+  // 시뮬레이션을 재시작하지 않고 opacity만 조절 (버벅임 방지)
+  function updateTimelineVisibility() {
+    const ns = window._graphNodeSel;
+    const ls = window._graphLinkSel;
+    if (!ns || !ls) return;
+    const cutoff = getTlCutoff();
+    if (cutoff === null) {
+      ns.style('opacity', null);
+      ls.style('opacity', null);
+      return;
+    }
+    const visible = new Set(
+      (window._graphSimNodes || [])
+        .filter(n => !n.createdAt || new Date(n.createdAt).getTime() <= cutoff)
+        .map(n => n.id)
+    );
+    ns.style('opacity', d => visible.has(d.id) ? 1 : 0);
+    ls.style('opacity', e => {
+      const s = typeof e.source === 'object' ? e.source.id : e.source;
+      const t = typeof e.target === 'object' ? e.target.id : e.target;
+      return visible.has(s) && visible.has(t) ? 1 : 0;
+    });
+  }
+
   function tlTogglePlay() {
     if (tlPlaying) {
       tlPlaying = false; clearInterval(tlTimer);
@@ -511,7 +604,7 @@
       tlPos = Math.min(100, tlPos + 1);
       document.getElementById('tl-slider').value = tlPos;
       updateTlLabel();
-      applyFiltersAndRender();
+      updateTimelineVisibility(); // 재렌더 없이 opacity만 업데이트
       if (tlPos >= 100) {
         tlPlaying = false; clearInterval(tlTimer);
         document.getElementById('tl-play').textContent = '▶';
@@ -523,7 +616,7 @@
     document.getElementById('tl-slider').addEventListener('input', e => {
       tlPos = parseInt(e.target.value);
       updateTlLabel();
-      applyFiltersAndRender();
+      updateTimelineVisibility();
     });
     document.getElementById('tl-play').addEventListener('click', tlTogglePlay);
   }
@@ -604,14 +697,6 @@
       }
     }
 
-    // 5. 타임라인 필터
-    const tlCutoff = getTlCutoff();
-    if (tlCutoff !== null) {
-      nodes = nodes.filter(n => !n.createdAt || new Date(n.createdAt).getTime() <= tlCutoff);
-      const ids = new Set(nodes.map(n => n.id));
-      edges = edges.filter(e => ids.has(e.source) && ids.has(e.target));
-    }
-
     renderGraph(nodes, edges, currentDbs);
   }
 
@@ -672,10 +757,22 @@
     currentEdges = res.edges || [];
     currentDbs   = res.dbs   || [];
     dbCountEl.textContent = `${currentNodes.length}개 페이지 · ${currentDbs.length}개 DB`;
-    updateLocalPageInfo();
-    populateDbFilter();
-    initTimeline();
-    applyFiltersAndRender();
+
+    // 현재 열린 탭에서 노션 페이지 ID 직접 감지
+    chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
+      if (tab?.url) {
+        const pid = extractPageIdFromUrl(tab.url);
+        if (pid) {
+          settings.localPageId = pid;
+          const n = currentNodes.find(n => n.id === pid);
+          settings.localPageTitle = n?.title || null;
+        }
+      }
+      updateLocalPageInfo();
+      populateDbFilter();
+      initTimeline();
+      applyFiltersAndRender();
+    });
   }
 
   // ─── 그래프 초기화 ─────────────────────────────────────────────────────────
@@ -848,6 +945,7 @@
       })
       .on('mousemove', e => positionTooltip(e))
       .on('mouseleave', () => {
+        if (draggingNode) return; // 드래그 중에는 highlight 유지
         nodeSel.selectAll('circle').classed('highlighted', false).classed('faded', false);
         nodeSel.selectAll('text').classed('highlighted', false).classed('faded', false);
         linkSel.classed('highlighted', false).classed('faded', false);
@@ -857,6 +955,8 @@
     window._graphNodeSel  = nodeSel;
     window._graphLinkSel  = linkSel;
     window._graphSimNodes = simNodes;
+
+    updateTimelineVisibility();
   }
 
   // ─── 툴팁 위치 ─────────────────────────────────────────────────────────────
@@ -873,9 +973,17 @@
   // ─── 드래그 ────────────────────────────────────────────────────────────────
   function makeDrag() {
     return d3.drag()
-      .on('start', (e, d) => { if (!e.active) simulation.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; })
+      .on('start', (e, d) => {
+        draggingNode = d;
+        if (!e.active) simulation.alphaTarget(0.3).restart();
+        d.fx = d.x; d.fy = d.y;
+      })
       .on('drag',  (e, d) => { d.fx = e.x; d.fy = e.y; })
-      .on('end',   (e, d) => { if (!e.active) simulation.alphaTarget(0); d.fx = null; d.fy = null; });
+      .on('end',   (e, d) => {
+        draggingNode = null;
+        if (!e.active) simulation.alphaTarget(0);
+        d.fx = null; d.fy = null;
+      });
   }
 
   // ─── 검색 ──────────────────────────────────────────────────────────────────

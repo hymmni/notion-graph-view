@@ -196,6 +196,14 @@ html, body {
 }
 .sp-db-item input[type="checkbox"] { accent-color: #6366f1; width: 13px; height: 13px; flex-shrink: 0; }
 .db-color-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.sp-db-row { cursor: default; }
+.db-drag-handle {
+  cursor: grab; color: #444; font-size: 13px; flex-shrink: 0;
+  user-select: none; padding: 0 2px; line-height: 1;
+}
+.db-drag-handle:active { cursor: grabbing; }
+.db-dragging  { opacity: 0.4; }
+.db-drag-over { background: rgba(99,102,241,0.12); border-radius: 4px; }
 
 /* ── DB 정렬 ─────────────────────────────────────────────────────────────── */
 .sp-sort-row { display: flex; gap: 4px; margin-bottom: 6px; }
@@ -264,7 +272,7 @@ html, body {
 /* ── D3 그래프 요소 ──────────────────────────────────────────────────────── */
 .link {
   stroke: #2a2a2a; stroke-width: 1.5px; stroke-opacity: .8;
-  transition: stroke .15s, stroke-opacity .15s;
+  transition: stroke .15s, stroke-opacity .15s, opacity .2s ease;
 }
 .link.highlighted { stroke: #6366f1; stroke-opacity: 1; }
 .link.faded       { stroke-opacity: .08; }
@@ -272,6 +280,7 @@ html, body {
 .node circle {
   stroke: #0f0f0f; stroke-width: 1.5px; cursor: pointer; transition: stroke .15s;
 }
+.node { transition: opacity .2s ease; }
 .node circle.highlighted  { stroke: #a5b4fc; stroke-width: 2.5px; }
 .node circle.faded        { opacity: .15; }
 .node circle.search-match { stroke: #fbbf24; stroke-width: 2.5px; }
