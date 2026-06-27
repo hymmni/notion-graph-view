@@ -1,0 +1,26 @@
+# 작업 메모
+*.prompt.md
+Notion graph extension prompt.md
+
+# Windows
+Thumbs.db
+desktop.ini
+ehthumbs.db
+
+# 에디터 / AI 도구
+.vscode/
+.idea/
+.claude/
+*.suo
+*.user
+
+# Node (나중에 빌드 도구 추가 시 대비)
+node_modules/
+npm-debug.log*
+
+# 환경 변수 / 시크릿
+.env
+*.pem
+
+# OS
+.DS_Store

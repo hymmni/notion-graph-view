@@ -1,0 +1,40 @@
+{
+  "manifest_version": 3,
+  "name": "Notion Graph View",
+  "version": "0.1.0",
+  "description": "Visualize Notion workspace databases and their relations as a force-directed graph (Obsidian-style).",
+  "action": {
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "background": {
+    "service_worker": "background/service-worker.js"
+  },
+  "side_panel": {
+    "default_path": "sidepanel/index.html"
+  },
+  "content_scripts": [
+    {
+      "js": ["content/content-script.js"],
+      "matches": [
+        "https://www.notion.so/*",
+        "https://notion.so/*",
+        "https://app.notion.com/*",
+        "https://*.notion.site/*"
+      ]
+    }
+  ],
+  "permissions": ["sidePanel", "storage", "tabs", "activeTab"],
+  "host_permissions": ["https://api.notion.com/*"],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  }
+}
