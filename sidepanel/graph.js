@@ -49,6 +49,7 @@
   let draggingNode       = null;   // 드래그 중인 노드 (hover 유지용)
   let savedPositions     = new Map(); // 노드 위치 저장 (re-render 시 복원)
   let activeSearch       = '';     // 현재 검색어 (mouseleave 후 복원용)
+  let knownWindowId      = null;   // Chrome sidePanel에서 currentWindow 오인식 방지용
 
   const DB_ORDER_KEY = 'dbCustomOrder';
 
@@ -775,8 +776,9 @@
 
     // 현재 열린 탭에서 노션 페이지 ID 직접 감지
     chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
-      if (tab?.url) {
-        const pid = extractPageIdFromUrl(tab.url);
+      if (tab) {
+        knownWindowId = tab.windowId; // 노드 클릭 시 페이지 이동에 재사용
+        const pid = extractPageIdFromUrl(tab.url || '');
         if (pid) {
           settings.localPageId = pid;
           const n = currentNodes.find(n => n.id === pid);
@@ -1017,9 +1019,13 @@
         if (!e.active) simulation.alphaTarget(0);
         d.fx = null; d.fy = null;
         // D3 drag는 mousedown→mouseup 중 1px만 움직여도 click 이벤트를 억제하므로
-        // drag end에서 직접 페이지 이동 처리
+        // drag end에서 직접 페이지 이동 처리.
+        // Chrome sidePanel에서 currentWindow가 오인식될 수 있으므로 windowId 명시.
         if (!wasDrag && d.url) {
-          chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
+          const q = knownWindowId
+            ? { active: true, windowId: knownWindowId }
+            : { active: true, lastFocusedWindow: true };
+          chrome.tabs.query(q, ([tab]) => {
             if (tab?.id) chrome.tabs.update(tab.id, { url: d.url });
             else chrome.tabs.create({ url: d.url });
           });
