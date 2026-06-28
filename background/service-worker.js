@@ -1,38 +1,48 @@
+importScripts('./graph-cache.js');
+
 const NOTION_API = 'https://api.notion.com/v1';
 const NOTION_VERSION = '2022-06-28';
 const MAX_RETRIES = 3;
 const MAX_PAGES_PER_DB = 500;
-const CACHE_KEY = 'graphCache';
-const CACHE_VERSION = 3; // 형식 변경 시 증가 → 구 캐시 자동 무효화
+const CACHE_VERSION = 3; // 형식 변경 시 증가 → IndexedDB 캐시 자동 무효화
+const IDB_CACHE_KEY = 'global';
 
 // ─── 아이콘 클릭 → 사이드패널 바로 열기 ──────────────────────────────────────
 
 // Chrome: 아이콘 클릭 시 사이드패널 열기 (Whale은 sidebar_action이 자동 처리)
 chrome.sidePanel?.setPanelBehavior?.({ openPanelOnActionClick: true })?.catch?.(() => {});
 
-// ─── 캐시 ────────────────────────────────────────────────────────────────────
+// 구 chrome.storage 캐시 제거 (한 번만 실행됨)
+chrome.storage.local.remove('graphCache');
+
+// ─── 패널 열림 상태 추적 (토글용) ────────────────────────────────────────────
+
+let panelIsOpen = false;
+// SW 재시작 후에도 상태 유지 (chrome.storage.session은 브라우저 세션 동안 유지)
+chrome.storage.session?.get?.('panelOpen')
+  ?.then?.(r => { if (r?.panelOpen) panelIsOpen = true; })
+  ?.catch?.(() => {});
+
+// ─── IndexedDB 캐시 ──────────────────────────────────────────────────────────
 
 async function getCachedGraph() {
-  const result = await chrome.storage.local.get(CACHE_KEY);
-  const cache = result[CACHE_KEY];
-  if (!cache || cache.version !== CACHE_VERSION) return null;
-  return cache;
+  const data = await graphCache.getGraphFromCache(IDB_CACHE_KEY);
+  if (!data || data.version !== CACHE_VERSION) return null;
+  return data;
 }
 
 async function setCachedGraph(data) {
-  await chrome.storage.local.set({
-    [CACHE_KEY]: {
-      version: CACHE_VERSION,
-      nodes: data.nodes,
-      edges: data.edges,
-      dbs: data.dbs,
-      cachedAt: Date.now(),
-    },
+  await graphCache.saveGraphToCache(IDB_CACHE_KEY, {
+    version: CACHE_VERSION,
+    nodes: data.nodes,
+    edges: data.edges,
+    dbs: data.dbs,
+    cachedAt: Date.now(),
   });
 }
 
 async function clearCache() {
-  await chrome.storage.local.remove(CACHE_KEY);
+  await graphCache.removeGraphFromCache(IDB_CACHE_KEY);
 }
 
 // ─── 백그라운드 갱신 (중복 방지 플래그) ──────────────────────────────────────
@@ -43,7 +53,7 @@ async function backgroundRefresh(token) {
   if (isRefreshing) return;
   isRefreshing = true;
   try {
-    const graph = await buildGraphData(token);
+    const graph = await buildGraphData(token, broadcastProgress);
     await setCachedGraph(graph);
     chrome.runtime.sendMessage({
       type: 'GRAPH_UPDATED',
@@ -102,7 +112,7 @@ async function fetchAllDatabases(token) {
     if (cursor) body.start_cursor = cursor;
     const data = await notionFetch('/search', token, { method: 'POST', body: JSON.stringify(body) });
     for (const item of data.results) {
-      if (item.object === 'database' && !item.archived) databases.push(item);
+      if (item.object === 'database' && !item.archived && !item.in_trash) databases.push(item);
     }
     cursor = data.has_more ? data.next_cursor : undefined;
   } while (cursor);
@@ -119,7 +129,7 @@ async function fetchNonDbPages(token, knownIds) {
     if (cursor) body.start_cursor = cursor;
     const data = await notionFetch('/search', token, { method: 'POST', body: JSON.stringify(body) });
     for (const item of data.results) {
-      if (item.object !== 'page' || item.archived) continue;
+      if (item.object !== 'page' || item.archived || item.in_trash) continue;
       const id = item.id.replace(/-/g, '');
       // DB 레코드(이미 처리됨)와 이미 추가된 페이지 제외
       if (item.parent?.type === 'database_id' || knownIds.has(id)) continue;
@@ -143,7 +153,7 @@ async function queryAllPages(dbId, token) {
       body: JSON.stringify(body),
     });
     for (const item of data.results) {
-      if (item.object === 'page' && !item.archived) pages.push(item);
+      if (item.object === 'page' && !item.archived && !item.in_trash) pages.push(item);
     }
     cursor = (data.has_more && pages.length < MAX_PAGES_PER_DB)
       ? data.next_cursor : undefined;
@@ -172,21 +182,32 @@ function extractIcon(db) {
 
 // ─── 그래프 데이터 빌드 ───────────────────────────────────────────────────────
 
-async function buildGraphData(token) {
+function broadcastProgress(msg, detail) {
+  chrome.runtime.sendMessage({ type: 'FETCH_PROGRESS', msg, detail: detail || '' }).catch(() => {});
+}
+
+async function buildGraphData(token, onProgress) {
+  onProgress?.('DB 목록 조회 중...', '');
   const databases = await fetchAllDatabases(token);
   if (databases.length === 0) return { nodes: [], edges: [], dbs: [], warning: 'NO_DATABASES' };
 
   const dbInfoMap = new Map();
   for (const db of databases) {
     const id = db.id.replace(/-/g, '');
-    dbInfoMap.set(id, { id, notionId: db.id, title: extractDbTitle(db), icon: extractIcon(db) });
+    dbInfoMap.set(id, { id, notionId: db.id, title: extractDbTitle(db), icon: extractIcon(db), url: db.url || null });
   }
+
+  const dbInfos = Array.from(dbInfoMap.values());
+  const dbTotal = dbInfos.length;
+  let dbDone = 0;
 
   const pageNodes = new Map();
   const edgeSet = new Set();
   const edges = [];
 
-  for (const dbInfo of dbInfoMap.values()) {
+  for (const dbInfo of dbInfos) {
+    dbDone++;
+    onProgress?.(`페이지 조회 중 (${dbDone}/${dbTotal})`, dbInfo.title);
     let pages;
     try {
       pages = await queryAllPages(dbInfo.notionId, token);
@@ -226,6 +247,7 @@ async function buildGraphData(token) {
   }
 
   // ─── 비DB 페이지 노드 + 부모-자식 엣지 ────────────────────────────────────
+  onProgress?.('비DB 페이지 조회 중...', '');
   let nonDbPages = [];
   try {
     nonDbPages = await fetchNonDbPages(token, pageNodes);
@@ -266,19 +288,20 @@ async function buildGraphData(token) {
     degreeMap.set(target, (degreeMap.get(target) || 0) + 1);
   }
 
+  onProgress?.('그래프 빌드 중...', '');
   const nodes = Array.from(pageNodes.values()).map(n => ({
     ...n,
     degree: degreeMap.get(n.id) || 0,
   }));
   const validEdges = edges.filter(e => pageNodes.has(e.source) && pageNodes.has(e.target));
-  const dbs = Array.from(dbInfoMap.values()).map(d => ({ id: d.id, title: d.title, icon: d.icon }));
+  const dbs = Array.from(dbInfoMap.values()).map(d => ({ id: d.id, title: d.title, icon: d.icon, url: d.url }));
 
   return { nodes, edges: validEdges, dbs };
 }
 
 // ─── 메시지 핸들러 ────────────────────────────────────────────────────────────
 
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   switch (message.type) {
 
     case 'SET_TOKEN': {
@@ -320,6 +343,35 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       break;
     }
 
+    case 'PANEL_READY': {
+      panelIsOpen = true;
+      chrome.storage.session?.set?.({ panelOpen: true })?.catch?.(() => {});
+      break;
+    }
+
+    case 'PANEL_CLOSING': {
+      panelIsOpen = false;
+      chrome.storage.session?.set?.({ panelOpen: false })?.catch?.(() => {});
+      break;
+    }
+
+    case 'OPEN_GRAPH': {
+      // 상단바 버튼 클릭 → 패널 토글
+      // open()은 반드시 동기적으로 호출해야 사용자 제스처 컨텍스트 유지됨
+      if (chrome.sidePanel && sender.tab?.id) {
+        if (panelIsOpen) {
+          // 패널에 스스로 닫으라고 지시 (window.close는 Chrome 버전 무관하게 동작)
+          chrome.runtime.sendMessage({ type: 'CLOSE_SELF' }).catch(() => {
+            panelIsOpen = false;
+          });
+        } else {
+          chrome.sidePanel.open({ tabId: sender.tab.id }).catch(() => {});
+        }
+      }
+      sendResponse({ ok: true });
+      break;
+    }
+
     default:
       break;
   }
@@ -343,7 +395,7 @@ async function handleFetchGraph(force, sendResponse) {
 
   // 캐시 없거나 강제 갱신: 직접 패치 후 응답
   try {
-    const graph = await buildGraphData(token);
+    const graph = await buildGraphData(token, broadcastProgress);
     await setCachedGraph(graph);
     sendResponse({ nodes: graph.nodes, edges: graph.edges, dbs: graph.dbs,
                    fromCache: false, cachedAt: Date.now() });

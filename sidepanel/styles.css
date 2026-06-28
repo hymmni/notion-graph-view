@@ -96,6 +96,11 @@ html, body {
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 #loading-msg { font-size: 12px; color: #666; text-align: center; line-height: 1.5; }
+.loading-detail {
+  font-size: 11px; color: #444; text-align: center;
+  max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  min-height: 1em;
+}
 
 /* ── 에러 ────────────────────────────────────────────────────────────────── */
 .error-overlay {
@@ -275,8 +280,10 @@ html, body {
   transition: stroke .15s, stroke-opacity .15s, opacity .2s ease;
 }
 .link.parent      { stroke: #8b8b9e; stroke-opacity: .55; stroke-dasharray: 5 4; }
+.link.contains    { stroke: #6366f1; stroke-opacity: .28; stroke-dasharray: 2 3; }
 .link.highlighted { stroke: #6366f1; stroke-opacity: 1; }
-.link.parent.highlighted { stroke: #a5b4fc; }
+.link.parent.highlighted   { stroke: #a5b4fc; }
+.link.contains.highlighted { stroke: #818cf8; stroke-opacity: 1; }
 .link.faded       { stroke-opacity: .08; }
 
 .node circle {
@@ -287,6 +294,7 @@ html, body {
 .node circle.faded        { opacity: .15; }
 .node circle.search-match { stroke: #fbbf24; stroke-width: 2.5px; }
 .node circle.local-center { stroke: #fff; stroke-width: 3px; }
+.node circle.db-node      { stroke: rgba(255,255,255,.5); stroke-width: 2.5px; }
 
 .node text {
   font-size: 10px; fill: #888; pointer-events: none; user-select: none;

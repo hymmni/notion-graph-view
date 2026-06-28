@@ -1,6 +1,10 @@
 (function () {
   'use strict';
 
+  const BUTTON_MARK = 'data-ng-graph-button';
+
+  // ─── URL 추적 (pushState 래핑, 폴링 없음) ─────────────────────────────────
+
   let lastPageId = null;
 
   function extractPageId(url) {
@@ -18,17 +22,15 @@
     return null;
   }
 
-  function notify(pageId) {
-    if (!chrome.runtime?.id) return;
-    chrome.runtime.sendMessage({ type: 'PAGE_ACTIVE', pageId }).catch(() => {});
+  function sendMsg(msg) {
+    try { if (chrome.runtime?.id) chrome.runtime.sendMessage(msg).catch(() => {}); } catch {}
   }
 
   function onUrlChange() {
-    try { if (!chrome.runtime?.id) return; } catch { return; }
     const pageId = extractPageId(window.location.href);
     if (pageId && pageId !== lastPageId) {
       lastPageId = pageId;
-      notify(pageId);
+      sendMsg({ type: 'PAGE_ACTIVE', pageId });
     }
   }
 
@@ -37,6 +39,58 @@
   history.pushState    = function (...a) { origPush.apply(this, a);    onUrlChange(); };
   history.replaceState = function (...a) { origReplace.apply(this, a); onUrlChange(); };
   window.addEventListener('popstate', onUrlChange);
-  setInterval(onUrlChange, 1500);
   onUrlChange();
+
+  // ─── Notion 상단바 버튼 주입 ─────────────────────────────────────────────
+
+  function openGraph() {
+    const pageId = extractPageId(location.href) || '';
+    sendMsg({ type: 'OPEN_GRAPH', pageId });
+  }
+
+  function mountButton() {
+    if (document.querySelector('[' + BUTTON_MARK + ']')) return;
+    const moreBtn = document.querySelector('div.notion-topbar-more-button[role="button"]');
+    if (!moreBtn) return;
+
+    const btn = document.createElement('div');
+    btn.setAttribute('role', 'button');
+    btn.tabIndex = 0;
+    btn.setAttribute(BUTTON_MARK, 'true');
+    btn.textContent = '그래프';
+    btn.setAttribute('aria-label', 'Notion Graph View');
+    btn.title = 'Notion Graph View';
+
+    Object.assign(btn.style, {
+      userSelect: 'none',
+      cursor: 'pointer',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      height: '28px',
+      borderRadius: '6px',
+      paddingLeft: '10px',
+      paddingRight: '10px',
+      whiteSpace: 'nowrap',
+      fontWeight: '600',
+      fontSize: '12px',
+      lineHeight: '1',
+      marginLeft: '4px',
+      transition: 'background 80ms ease-in',
+    });
+
+    btn.addEventListener('mouseenter', () => { btn.style.background = 'var(--ca-butHovBac)'; });
+    btn.addEventListener('mouseleave', () => { btn.style.background = ''; });
+    btn.addEventListener('click',   (e) => { e.preventDefault(); e.stopPropagation(); openGraph(); });
+    btn.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openGraph(); } });
+
+    // moreBtn.parentElement가 wrapper라면 그 앞에, 아니면 moreBtn 앞에 삽입
+    const anchor = moreBtn.parentElement?.parentElement ? moreBtn.parentElement : moreBtn;
+    anchor.parentElement?.insertBefore(btn, anchor);
+  }
+
+  const observer = new MutationObserver(mountButton);
+  observer.observe(document.documentElement, { childList: true, subtree: true });
+  setInterval(mountButton, 800);
+  mountButton();
 })();

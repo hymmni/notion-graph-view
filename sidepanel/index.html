@@ -60,6 +60,7 @@
       <div id="loading-overlay" class="loading-overlay hidden">
         <div class="spinner"></div>
         <span id="loading-msg">데이터 로딩 중...</span>
+        <span id="loading-detail" class="loading-detail"></span>
       </div>
 
       <!-- 에러 -->
@@ -146,6 +147,10 @@
               <span class="sp-section-arrow">▾</span><span>표시</span>
             </div>
             <div class="sp-section-body">
+              <label class="sp-row sp-checkbox-row">
+                <span>DB 소스 노드 표시</span>
+                <input type="checkbox" id="s-show-db-nodes" />
+              </label>
               <label class="sp-row sp-checkbox-row">
                 <span>비DB 페이지 표시</span>
                 <input type="checkbox" id="s-show-page-nodes" />

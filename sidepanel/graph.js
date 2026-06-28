@@ -18,6 +18,7 @@
   const localPageName  = document.getElementById('local-page-name');
   const loadingOverlay = document.getElementById('loading-overlay');
   const loadingMsg     = document.getElementById('loading-msg');
+  const loadingDetail  = document.getElementById('loading-detail');
   const errorOverlay   = document.getElementById('error-overlay');
   const errorMsg       = document.getElementById('error-msg');
   const btnRetry       = document.getElementById('btn-retry');
@@ -73,6 +74,7 @@
     showLabels:     true,
     labelThreshold: 0,
     showArrows:     false,
+    showDbNodes:    false, // DB 소스 노드 표시
     showPageNodes:  false, // 비DB 페이지 노드 표시
     linkWidth:      1.5,
     repelMaxDist:   300,
@@ -99,6 +101,7 @@
   }
   function showLoading(msg) {
     loadingMsg.textContent = msg || '데이터 로딩 중...';
+    if (loadingDetail) loadingDetail.textContent = '';
     loadingOverlay.classList.remove('hidden');
     errorOverlay.classList.add('hidden');
     warningBanner.classList.add('hidden');
@@ -160,7 +163,7 @@
       }
       if (msg.type === 'PAGE_ACTIVE') {
         settings.localPageId = msg.pageId;
-        const n = currentNodes.find(n => n.id === msg.pageId);
+        const n = findInGraph(msg.pageId);
         settings.localPageTitle = n ? n.title : null;
         updateLocalPageInfo();
         if (settings.localMode) applyFiltersAndRender();
@@ -170,8 +173,22 @@
           knownWindowId = sender.tab.windowId;
         }
       }
+      if (msg.type === 'CLOSE_SELF') {
+        window.close();
+      }
+      if (msg.type === 'FETCH_PROGRESS') {
+        if (!loadingOverlay.classList.contains('hidden')) {
+          if (loadingMsg)    loadingMsg.textContent    = msg.msg    || '';
+          if (loadingDetail) loadingDetail.textContent = msg.detail || '';
+        }
+      }
     });
   } catch (e) { if (isCtxInvalid(e?.message)) window.location.reload(); }
+
+  // 패널 닫힐 때 SW에 알림
+  window.addEventListener('pagehide', () => {
+    chrome.runtime.sendMessage({ type: 'PANEL_CLOSING' }).catch(() => {});
+  });
 
   // ─── 초기화 ────────────────────────────────────────────────────────────────
   async function init() {
@@ -186,6 +203,8 @@
       if (hasToken) { showScreen(graphScreen); loadGraph(); }
       else showScreen(tokenScreen);
     } catch { showScreen(tokenScreen); }
+    // SW에 패널 열림 상태 등록
+    chrome.runtime.sendMessage({ type: 'PANEL_READY' }).catch(() => {});
   }
 
   // ─── 토큰 저장 ─────────────────────────────────────────────────────────────
@@ -276,7 +295,8 @@
       el.addEventListener('change', () => { settings[key] = el.checked; onchange(); });
     }
 
-    // 표시 (비DB 페이지)
+    // 표시
+    check ('s-show-db-nodes',   'showDbNodes',    applyFiltersAndRender);
     check ('s-show-page-nodes', 'showPageNodes',  applyFiltersAndRender);
 
     // 필터
@@ -313,6 +333,7 @@
     document.getElementById('s-hide-orphans').checked    = settings.hideOrphans;
     document.getElementById('s-show-arrows').checked     = settings.showArrows;
     document.getElementById('s-show-labels').checked     = settings.showLabels;
+    document.getElementById('s-show-db-nodes').checked   = settings.showDbNodes;
     document.getElementById('s-show-page-nodes').checked = settings.showPageNodes;
     const fmtInt = v => String(Math.round(v));
     const fmt1   = v => parseFloat(v).toFixed(1);
@@ -651,12 +672,17 @@
     if (settings.localMode) applyFiltersAndRender();
   });
 
+  // currentNodes(페이지) + currentDbs(DB 노드) 통합 검색
+  function findInGraph(id) {
+    return currentNodes.find(n => n.id === id) || currentDbs.find(d => d.id === id) || null;
+  }
+
   function updateLocalPageInfo() {
     if (!settings.localPageId) {
       localPageName.textContent = '노션 페이지로 이동하세요';
       return;
     }
-    const n = currentNodes.find(n => n.id === settings.localPageId);
+    const n = findInGraph(settings.localPageId);
     if (n) {
       settings.localPageTitle = n.title;
       localPageName.textContent = n.title;
@@ -683,9 +709,26 @@
       edges = edges.filter(e => e.type !== 'parent');
     }
 
-    // 1. DB 숨기기
+    // 0.5. DB 소스 노드 + contains 엣지 추가
+    if (settings.showDbNodes) {
+      const pagesPerDb = new Map();
+      nodes.forEach(n => { if (n.parentDb) pagesPerDb.set(n.parentDb, (pagesPerDb.get(n.parentDb) || 0) + 1); });
+      const pageNodes = nodes.slice(); // 스냅샷 (DB 노드 추가 전)
+      for (const db of currentDbs) {
+        nodes.push({ id: db.id, title: db.title, url: db.url || null, parentDb: null,
+                     parentDbTitle: null, nodeType: 'db', degree: pagesPerDb.get(db.id) || 0 });
+        for (const n of pageNodes) {
+          if (n.parentDb === db.id)
+            edges.push({ source: db.id, target: n.id, type: 'contains', bidirectional: false });
+        }
+      }
+    }
+
+    // 1. DB 숨기기 (DB 노드 자신 + 소속 페이지)
     if (settings.hiddenDbs.size > 0) {
-      nodes = nodes.filter(n => !settings.hiddenDbs.has(n.parentDb));
+      nodes = nodes.filter(n => n.nodeType === 'db'
+        ? !settings.hiddenDbs.has(n.id)
+        : !settings.hiddenDbs.has(n.parentDb));
       const ids = new Set(nodes.map(n => n.id));
       edges = edges.filter(e => ids.has(e.source) && ids.has(e.target));
     }
@@ -799,8 +842,7 @@
         const pid = extractPageIdFromUrl(tab.url || '');
         if (pid) {
           settings.localPageId = pid;
-          const n = currentNodes.find(n => n.id === pid);
-          settings.localPageTitle = n?.title || null;
+          settings.localPageTitle = findInGraph(pid)?.title || null;
         }
       }
       updateLocalPageInfo();
@@ -838,10 +880,10 @@
     const dbColorMap = new Map();
     (dbs || []).forEach((db, i) => dbColorMap.set(db.id, DB_COLORS[i % DB_COLORS.length]));
 
-    // 노드 반지름 (degree + 설정 배율)
+    // 노드 반지름 (degree + 설정 배율, DB 노드는 1.6× 부스트)
     const maxDeg = Math.max(1, ...nodes.map(n => n.degree));
     const rScale = d3.scaleSqrt().domain([0, maxDeg]).range([4, 14]);
-    const r = d => rScale(d.degree) * settings.nodeSizeScale;
+    const r = d => rScale(d.degree) * settings.nodeSizeScale * (d.nodeType === 'db' ? 1.6 : 1);
 
     const root = d3.select(svg).attr('width', W).attr('height', H);
 
@@ -860,6 +902,11 @@
       .attr('viewBox', '0 -3 6 6').attr('refX', 6).attr('refY', 0)
       .attr('markerWidth', 3).attr('markerHeight', 3).attr('orient', 'auto')
       .append('path').attr('d', 'M0,-3L6,0L0,3').attr('fill', '#8b8b9e');
+    // contains 엣지 전용 마커 (인디고, 항상 표시)
+    defs.append('marker').attr('id', 'arrow-contains')
+      .attr('viewBox', '0 -3 6 6').attr('refX', 6).attr('refY', 0)
+      .attr('markerWidth', 3).attr('markerHeight', 3).attr('orient', 'auto')
+      .append('path').attr('d', 'M0,-3L6,0L0,3').attr('fill', '#6366f1');
 
     const zoomG = root.append('g').attr('class', 'zoom-group');
 
@@ -901,11 +948,12 @@
       .attr('class', d => `link ${d.type || 'relation'}`)
       .style('stroke-width', settings.linkWidth + 'px')
       .attr('marker-end', d => {
-        if (d.type === 'parent') return 'url(#arrow-parent)';
+        if (d.type === 'parent')   return 'url(#arrow-parent)';
+        if (d.type === 'contains') return 'url(#arrow-contains)';
         return settings.showArrows ? 'url(#arrow-end)' : null;
       })
       .attr('marker-start', d => {
-        if (d.type === 'parent') return null;
+        if (d.type === 'parent' || d.type === 'contains') return null;
         return settings.showArrows && d.bidirectional ? 'url(#arrow-start)' : null;
       });
 
@@ -919,8 +967,13 @@
         const base = r(d);
         return (settings.localMode && d.id === settings.localPageId) ? base + 4 : base;
       })
-      .attr('fill', d => d.nodeType === 'page' ? '#7e7e9a' : (dbColorMap.get(d.parentDb) || '#6366f1'))
-      .classed('page-node', d => d.nodeType === 'page')
+      .attr('fill', d => {
+        if (d.nodeType === 'db')   return dbColorMap.get(d.id)   || '#6366f1';
+        if (d.nodeType === 'page') return '#7e7e9a';
+        return dbColorMap.get(d.parentDb) || '#6366f1';
+      })
+      .classed('db-node',    d => d.nodeType === 'db')
+      .classed('page-node',  d => d.nodeType === 'page')
       .classed('local-center', d => settings.localMode && d.id === settings.localPageId);
 
     const initFontSize = `${10 / Math.pow(Math.max(0.1, currentZoomScale), 0.6)}px`;
@@ -990,12 +1043,21 @@
           });
 
         const nbNodes = Array.from(nb).map(id => simNodes.find(n => n.id === id)).filter(Boolean).slice(0, 7);
-        const col = dbColorMap.get(d.parentDb) || '#6366f1';
+        const col = d.nodeType === 'db'
+          ? (dbColorMap.get(d.id) || '#6366f1')
+          : (dbColorMap.get(d.parentDb) || '#6366f1');
         let html = `<div class="tooltip-title">${trunc(d.title, 30)}</div>`;
-        html += `<div class="tooltip-db" style="color:${col}">${d.parentDbIcon ? d.parentDbIcon + ' ' : '📁'}${trunc(d.parentDbTitle, 22)}</div>`;
-        html += nbNodes.length
-          ? `<div class="tooltip-neighbors">연결: ${nbNodes.map(n => `<span class="tooltip-neighbor">${trunc(n.title, 14)}</span>`).join(', ')}${nb.size > 7 ? ` 외 ${nb.size - 7}개` : ''}</div>`
-          : `<div class="tooltip-neighbors">연결된 페이지 없음</div>`;
+        if (d.nodeType === 'db') {
+          html += `<div class="tooltip-db" style="color:${col}">📦 데이터베이스</div>`;
+          html += nbNodes.length
+            ? `<div class="tooltip-neighbors">페이지: ${nbNodes.map(n => `<span class="tooltip-neighbor">${trunc(n.title, 14)}</span>`).join(', ')}${nb.size > 7 ? ` 외 ${nb.size - 7}개` : ''}</div>`
+            : `<div class="tooltip-neighbors">페이지 없음</div>`;
+        } else {
+          html += `<div class="tooltip-db" style="color:${col}">${d.parentDbIcon ? d.parentDbIcon + ' ' : '📁'}${trunc(d.parentDbTitle, 22)}</div>`;
+          html += nbNodes.length
+            ? `<div class="tooltip-neighbors">연결: ${nbNodes.map(n => `<span class="tooltip-neighbor">${trunc(n.title, 14)}</span>`).join(', ')}${nb.size > 7 ? ` 외 ${nb.size - 7}개` : ''}</div>`
+            : `<div class="tooltip-neighbors">연결된 페이지 없음</div>`;
+        }
         tooltip.innerHTML = html;
         tooltip.classList.remove('hidden');
         positionTooltip(event);
