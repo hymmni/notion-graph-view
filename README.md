@@ -2,7 +2,9 @@
 
 Notion 워크스페이스의 데이터베이스와 페이지 관계를 옵시디언 스타일의 포스 그래프로 시각화하는 Chrome / Naver Whale 확장앱입니다.
 
-![preview](icons/icon128.png)
+![preview](assets/graph-image.png)
+
+![demo](assets/graph-view-animation.gif)
 
 ## 주요 기능
 
